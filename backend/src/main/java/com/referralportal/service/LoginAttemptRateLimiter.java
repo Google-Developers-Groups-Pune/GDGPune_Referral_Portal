@@ -6,9 +6,9 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Locale;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -44,7 +44,7 @@ public class LoginAttemptRateLimiter {
         this.ipAttemptLimit = ipAttemptLimit;
     }
 
-    @Transactional
+    @Transactional(noRollbackFor = ResponseStatusException.class)
     public void checkAllowed(String email, String clientIp) {
         if (increment("ip", clientIp) > ipAttemptLimit) {
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
@@ -69,8 +69,8 @@ public class LoginAttemptRateLimiter {
     public void removeExpiredBuckets() {
         jdbcTemplate.update("""
                 DELETE FROM auth_login_rate_limits
-                WHERE window_started_at < TIMESTAMPADD(SECOND, -86400, UTC_TIMESTAMP(6))
-                """);
+                WHERE window_started_at < TIMESTAMPADD(SECOND, -?, UTC_TIMESTAMP(6))
+                """, windowSeconds);
     }
 
     private int increment(String type, String value) {
