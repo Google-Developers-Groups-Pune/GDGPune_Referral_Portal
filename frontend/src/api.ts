@@ -14,6 +14,7 @@ export type Profile = {
   rolesWanted: string[]
   githubUrl: string | null
   linkedinUrl: string | null
+  portfolioUrl: string | null
   phoneNumber: string | null
   hideFromMyCompany: boolean
   exists: boolean
@@ -75,6 +76,7 @@ export type ReferralRequestInboxItem = {
   pitch: string | null
   githubUrl: string | null
   linkedinUrl: string | null
+  portfolioUrl: string | null
   seekerNote: string | null
   canSharePhone: boolean
   seekerEmail: string | null

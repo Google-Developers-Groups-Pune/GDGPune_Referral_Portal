@@ -94,7 +94,7 @@ class CompanyReferralRequestFlowTests {
         insertProfile(seekerId, "+1 555 010 1234");
         insertProfile(firstReferrerId, "+1 555 010 5678");
         insertProfile(secondReferrerId, "+1 555 010 9012");
-        jdbc.sql("UPDATE profiles SET github_url = 'https://github.com/seeker', linkedin_url = 'https://linkedin.com/in/seeker' WHERE user_id = ?")
+        jdbc.sql("UPDATE profiles SET github_url = 'https://github.com/seeker', linkedin_url = 'https://linkedin.com/in/seeker', portfolio_url = 'https://seeker.example.test/portfolio' WHERE user_id = ?")
                 .param(seekerId).update();
         insertReferrer(firstReferrerId, companyId, "first-work-" + suffix + "@company.test");
         insertReferrer(secondReferrerId, companyId, "second-work-" + suffix + "@company.test");
@@ -108,6 +108,7 @@ class CompanyReferralRequestFlowTests {
         ReferrerInboxItem firstInbox = inboxItem(requests.inbox(authentication(firstReferrerEmail, "First Referrer")));
         assertEquals("https://github.com/seeker", firstInbox.githubUrl());
         assertEquals("https://linkedin.com/in/seeker", firstInbox.linkedinUrl());
+        assertEquals("https://seeker.example.test/portfolio", firstInbox.portfolioUrl());
         assertNull(firstInbox.seekerEmail());
         assertNull(firstInbox.seekerPhone());
         long firstResponseId = firstInbox.responseId();

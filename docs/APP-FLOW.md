@@ -112,7 +112,7 @@ Spring Security OAuth2 login → [UserService.java](/d:/GDG/Referral-Portal/back
    - `pitch`, `experienceLevel`
    - `skills`, `rolesWanted` — stored as **JSON arrays** (MySQL has no array type; there's a
      generated/functional index on `skills` for lookup)
-  - `githubUrl`, `linkedinUrl`, and optional `phoneNumber`
+  - `githubUrl`, `linkedinUrl`, `portfolioUrl`, and optional `phoneNumber`
    - `hideFromMyCompany` (boolean)
    - `seeker` defaults to `true` at row creation
 4.  Resume upload is not implemented. The `resume_files` table and `ResumeFile` entity define
