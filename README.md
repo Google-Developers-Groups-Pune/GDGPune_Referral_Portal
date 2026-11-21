@@ -59,7 +59,7 @@ The normal team development setup uses the shared Aiven development database. In
 
 To use an isolated local database instead, keep the local database values from `.env.example` and start Docker Compose MySQL in the next section. Local Docker data is separate from Aiven and is persisted in a Docker volume.
 
-Google/GitHub OAuth and Brevo email credentials are not included. The app can start without them, but those sign-in and email flows will not work until configured. For local OAuth, register these callback URLs with the providers:
+Google/GitHub OAuth and Brevo email credentials are not included. The app can start without them, but those sign-in and email flows will not work until configured. Password registration also needs working email delivery to verify ownership before creating an account. For local OAuth, register these callback URLs with the providers:
 
 ```text
 http://localhost:8080/login/oauth2/code/google

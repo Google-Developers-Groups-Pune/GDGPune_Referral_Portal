@@ -91,6 +91,27 @@ Spring Security OAuth2 login → [UserService.java](/d:/GDG/Referral-Portal/back
 
 **MVP boundary:** LinkedIn sign-in is not implemented; Google and GitHub are supported.
 
+## 2. Register with email and password
+
+**Flow:**
+1. The browser submits the name, email, and password. The backend normalizes the email, validates
+  the password, and applies registration rate limits. If the email can be registered, it stores a
+  pending-registration row with the password and OTP hashes, then emails a six-digit code. It does
+  not create a `users` row or session yet. The response is generic to avoid revealing whether an
+  account already exists.
+2. The code expires after ten minutes and permits at most five incorrect attempts. Resending a code
+  is rate limited; a new code replaces the previous pending registration for that email.
+3. The browser submits the email, code, and original password. The backend validates the code,
+  expiry, attempt count, and password match; it rechecks email uniqueness and only then creates
+  the password account and badge.
+4. After verification succeeds, the backend establishes the normal session. Existing Google/GitHub
+  accounts cannot be claimed through password signup because an unverified registration never
+  creates or links a user record.
+
+**Tables touched:** `pending_password_registrations` before verification, then `users` and `badges`
+after successful verification. V11 creates the pending-registration table; scheduled maintenance
+removes expired pending rows.
+
 ---
 
 ## 2. Build / edit profile (seeker side)
