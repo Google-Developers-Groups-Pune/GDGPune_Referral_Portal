@@ -102,6 +102,7 @@ export default function ProfilePage({ me }: { me: Me }) {
           rolesWanted: p.rolesWanted,
           githubUrl: p.githubUrl ?? '',
           linkedinUrl: p.linkedinUrl ?? '',
+          portfolioUrl: p.portfolioUrl ?? '',
           phoneNumber: p.phoneNumber ?? '',
           hideFromMyCompany: p.hideFromMyCompany,
         },
@@ -222,6 +223,8 @@ export default function ProfilePage({ me }: { me: Me }) {
         <input id="gh" value={form.githubUrl ?? ''} onChange={(e) => set('githubUrl', e.target.value)} placeholder="https://github.com/you" className="mt-1 w-full rounded-full border border-line bg-white px-4 py-2.5 text-sm outline-none focus:border-gblue" />
         <label className="mt-3 block text-sm font-bold" htmlFor="li">LinkedIn</label>
         <input id="li" value={form.linkedinUrl ?? ''} onChange={(e) => set('linkedinUrl', e.target.value)} placeholder="https://linkedin.com/in/you" className="mt-1 w-full rounded-full border border-line bg-white px-4 py-2.5 text-sm outline-none focus:border-gblue" />
+        <label className="mt-3 block text-sm font-bold" htmlFor="portfolio">Portfolio <span className="font-normal text-muted">(optional)</span></label>
+        <input id="portfolio" type="url" maxLength={500} value={form.portfolioUrl ?? ''} onChange={(e) => set('portfolioUrl', e.target.value)} placeholder="https://your-portfolio.com" className="mt-1 w-full rounded-full border border-line bg-white px-4 py-2.5 text-sm outline-none focus:border-gblue" />
         <label className="mt-3 block text-sm font-bold" htmlFor="phone-number">Phone number <span className="font-normal text-muted">(optional)</span></label>
         <input id="phone-number" type="tel" maxLength={32} value={form.phoneNumber ?? ''} onChange={(e) => set('phoneNumber', e.target.value)} placeholder="+1 555 010 1234" className="mt-1 w-full rounded-full border border-line bg-white px-4 py-2.5 text-sm outline-none focus:border-gblue" />
       </Card>

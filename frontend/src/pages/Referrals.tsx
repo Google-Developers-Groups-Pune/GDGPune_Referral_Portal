@@ -109,6 +109,7 @@ function ReferrerInboxCard({ item, act, pending }: {
     item.rolesWanted.length > 0 ? `Interested in: ${item.rolesWanted.join(', ')}` : undefined,
     item.githubUrl ? `GitHub: ${item.githubUrl}` : undefined,
     item.linkedinUrl ? `LinkedIn: ${item.linkedinUrl}` : undefined,
+    item.portfolioUrl ? `Portfolio: ${item.portfolioUrl}` : undefined,
     item.seekerEmail ? `Email: ${item.seekerEmail}` : undefined,
     item.seekerPhone ? `Phone: ${item.seekerPhone}` : undefined,
     item.seekerNote ? `Note: ${item.seekerNote}` : undefined,
@@ -143,10 +144,11 @@ function ReferrerInboxCard({ item, act, pending }: {
       {item.pitch && <p className="text-sm">{item.pitch}</p>}
       {item.rolesWanted.length > 0 && <p className="text-sm text-muted">Interested in: {item.rolesWanted.join(', ')}</p>}
       {item.referralRolePreferences.length > 0 && <p className="text-sm text-muted">Your referral areas: {item.referralRolePreferences.join(', ')}</p>}
-      {(item.githubUrl || item.linkedinUrl) && (
+      {(item.githubUrl || item.linkedinUrl || item.portfolioUrl) && (
         <div className="flex flex-wrap gap-3 text-sm">
           {item.githubUrl && <a className="text-gblue underline" href={item.githubUrl} target="_blank" rel="noreferrer">GitHub profile</a>}
           {item.linkedinUrl && <a className="text-gblue underline" href={item.linkedinUrl} target="_blank" rel="noreferrer">LinkedIn profile</a>}
+          {item.portfolioUrl && <a className="text-gblue underline" href={item.portfolioUrl} target="_blank" rel="noreferrer">Portfolio</a>}
         </div>
       )}
       {item.skills.length > 0 && <div className="flex flex-wrap gap-1.5">{item.skills.map((skill) => <Chip key={skill}>{skill}</Chip>)}</div>}

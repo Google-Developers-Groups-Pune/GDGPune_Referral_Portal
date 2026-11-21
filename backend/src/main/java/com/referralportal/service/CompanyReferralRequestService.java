@@ -350,6 +350,7 @@ public class CompanyReferralRequestService {
                 profileShared ? profile.getPitch() : null,
                 profileShared ? profile.getGithubUrl() : null,
                 profileShared ? profile.getLinkedinUrl() : null,
+                profileShared ? profile.getPortfolioUrl() : null,
                 request.getSeekerNote(), canSharePhone, email, phone,
             response.getStatus(), time(response.getCreatedAt()),
                 time(response.getAcceptedAt()), time(response.getSubmittedAt()), response.getRemindersSent());

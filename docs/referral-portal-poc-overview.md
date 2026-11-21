@@ -29,7 +29,7 @@ The MVP supports the referral handoff between job seekers and opted-in employees
 | Capability | MVP status | Notes |
 |---|---|---|
 | Google and GitHub sign-in | IN MVP | OAuth creates a user the first time; later sign-ins reuse the account by email. |
-| Seeker profile | IN MVP | Experience, skills, roles wanted, pitch, profile links, and optional phone. Resume upload is planned. |
+| Seeker profile | IN MVP | Experience, skills, roles wanted, pitch, GitHub/LinkedIn/portfolio links, and optional phone. Resume upload is planned. |
 | Work-email verification | IN MVP | Six-digit emailed code; unlocks referrer settings. It is not required to sign in or save a seeker profile. |
 | Company directory | IN MVP | Companies with at least one verified employee opted in to referral requests; employee identities are not listed. |
 | Wishlist | IN MVP | A seeker can save up to five companies. |
@@ -92,7 +92,7 @@ Flyway SQL migrations manage the schema, and repository data access uses Spring 
 The `users` table is the identity anchor: one row per person. A person can be both a seeker and a referrer without creating a second account.
 
 - `users` stores the sign-in identity, name, email, provider, consent time, and creation time.
-- `profiles` stores the seeker's experience, skills, pitch, links, and optional phone. Its `user_id` points to `users.id`.
+- `profiles` stores the seeker's experience, skills, pitch, GitHub/LinkedIn/portfolio links, and optional phone. Its `user_id` points to `users.id`.
 - `referrer_profiles` stores the employee side: verified work email, company, job title, referral-request opt-in, role preferences, and active-assignment limit. Verification alone does not opt someone in.
 - `badges` stores one random QR token per user.
 
