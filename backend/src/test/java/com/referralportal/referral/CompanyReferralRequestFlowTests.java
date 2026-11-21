@@ -166,6 +166,8 @@ class CompanyReferralRequestFlowTests {
         insertReferrer(thirdReferrerId, companyId, "continue-third-work-" + suffix + "@company.test");
         requests.accept(authentication(firstEmail, "First Referrer"), request.id(), new AcceptRequest(false, false));
         entityManager.flush();
+        jdbc.sql("UPDATE referral_request_responses SET status = 'pending' "
+                + "WHERE request_id = ? AND referrer_id = ?").params(request.id(), secondReferrerId).update();
         jdbc.sql("UPDATE referral_request_responses SET accepted_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 5 DAY) "
                 + "WHERE request_id = ? AND referrer_id = ?").params(request.id(), firstReferrerId).update();
         jdbc.sql("UPDATE company_referral_requests SET expires_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 1 MINUTE) "
@@ -178,6 +180,8 @@ class CompanyReferralRequestFlowTests {
         assertEquals("awaiting_seeker", awaiting.status());
         assertTrue(awaiting.canContinueWithOtherReferrers());
         assertEquals(1, awaiting.otherReferrerCount());
+        assertEquals("pending", responses.findByRequestIdAndReferrerId(request.id(), secondReferrerId)
+                .orElseThrow().getStatus());
 
         requests.continueWithOtherReferrers(authentication(seekerEmail, "Continue Seeker"), request.id());
         assertEquals("pending", inboxItem(requests.inbox(authentication(secondEmail, "Second Referrer"))).status());

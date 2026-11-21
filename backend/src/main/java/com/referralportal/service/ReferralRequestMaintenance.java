@@ -84,12 +84,16 @@ public class ReferralRequestMaintenance {
         List<ReferralRequestResponse> requestResponses = responses.findByRequestIdOrderByCreatedAt(request.getId());
         boolean hasAccepted = requestResponses.stream().anyMatch(response ->
             java.util.Set.of("accepted", "submitted", "confirmed").contains(response.getStatus()));
+        boolean hasActiveAssignment = requestResponses.stream().anyMatch(response ->
+            "accepted".equals(response.getStatus()) && response.getSubmittedAt() == null);
         request.setStatus(hasAccepted ? "closed" : "expired");
         request.setClosedAt(now);
-        for (ReferralRequestResponse response : requestResponses) {
-            if ("pending".equals(response.getStatus())) {
-                response.setStatus("expired");
-                response.setClosedAt(now);
+        if (!hasActiveAssignment) {
+            for (ReferralRequestResponse response : requestResponses) {
+                if ("pending".equals(response.getStatus()) || "accepted_elsewhere".equals(response.getStatus())) {
+                    response.setStatus("expired");
+                    response.setClosedAt(now);
+                }
             }
         }
         if (!hasAccepted) {
