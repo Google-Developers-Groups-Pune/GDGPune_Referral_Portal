@@ -117,13 +117,15 @@ Spring Security OAuth2 login → [UserService.java](/d:/GDG/Referral-Portal/back
    - `seeker` defaults to `true` at row creation
 4.  Resume upload is implemented for the signed-in seeker. The Profile page uploads a PDF up to
     5 MB, with metadata and download/delete controls. Resume bytes are stored in `resume_files`;
-    production object storage may replace the database blob in a later deployment.
+  each referral request snapshots the uploaded file in `referral_request_resumes`. Snapshots are
+  removed 30 days after the request is closed or expires. Production object storage may replace
+  the database blobs in a later deployment.
 5. `GET /api/me/profile` reads the row back for the edit form; if no row exists yet,
    `ProfileView.exists()` is `false` and the UI shows the "Save and continue" (create) label
    instead of "Save changes".
 
-**Tables touched:** `profiles` (insert/update). `resume_files` is defined in the schema but is
-not written by the application.
+**Tables touched:** `profiles` (insert/update). Resume upload writes `resume_files`; referral
+request creation writes `referral_request_resumes` when a resume is uploaded.
 
 **Business rule enforced here:** wishlist and referral-request limits are enforced by their
 respective company and referral services, not by profile save.

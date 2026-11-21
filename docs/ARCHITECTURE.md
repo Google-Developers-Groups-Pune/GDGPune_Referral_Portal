@@ -142,6 +142,7 @@ erDiagram
     COMPANIES ||--o{ WISHLISTS : saved_by
     USERS ||--o{ COMPANY_REFERRAL_REQUESTS : creates
     COMPANIES ||--o{ COMPANY_REFERRAL_REQUESTS : receives
+    COMPANY_REFERRAL_REQUESTS ||--o| REFERRAL_REQUEST_RESUMES : snapshots
     COMPANY_REFERRAL_REQUESTS ||--o{ REFERRAL_REQUEST_RESPONSES : invites
     USERS ||--o{ REFERRAL_REQUEST_RESPONSES : responds
     REFERRAL_REQUEST_RESPONSES ||--o| REFERRAL_REQUEST_CREDITS : may_earn
@@ -179,6 +180,13 @@ erDiagram
         bigint company_id FK
         string role_title
         string status
+    }
+    REFERRAL_REQUEST_RESUMES {
+        bigint request_id PK,FK
+        string filename
+        string sha256
+        blob data
+        datetime uploaded_at
     }
     REFERRAL_REQUEST_RESPONSES {
         bigint id PK

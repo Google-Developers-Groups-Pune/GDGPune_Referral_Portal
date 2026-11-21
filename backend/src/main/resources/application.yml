@@ -47,6 +47,7 @@ spring:
 app:
   frontend-url: ${APP_FRONTEND_URL:/} # dev: http://localhost:5173
   mail-from: ${MAIL_FROM:}
+  resume-request-snapshot-retention-days: ${RESUME_REQUEST_SNAPSHOT_RETENTION_DAYS:30}
 
 server:
   port: ${PORT:8080}

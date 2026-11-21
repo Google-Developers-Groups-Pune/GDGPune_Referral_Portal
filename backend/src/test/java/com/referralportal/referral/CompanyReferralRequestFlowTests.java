@@ -206,6 +206,35 @@ class CompanyReferralRequestFlowTests {
         }
 
         @Test
+        void removesRequestResumeSnapshotsThirtyDaysAfterClosure() {
+                String suffix = UUID.randomUUID().toString().replace("-", "");
+                String seekerEmail = "retention-seeker-" + suffix + "@example.test";
+                String referrerEmail = "retention-referrer-" + suffix + "@example.test";
+                long seekerId = insertUser("Retention Seeker", seekerEmail);
+                long referrerId = insertUser("Retention Referrer", referrerEmail);
+                long companyId = insertCompany(suffix);
+                insertProfile(seekerId, null);
+                insertReferrer(referrerId, companyId, "retention-work-" + suffix + "@company.test");
+                resumes.upload(authentication(seekerEmail, "Retention Seeker"),
+                        new MockMultipartFile("file", "retention.pdf", "application/pdf",
+                                new byte[]{'%', 'P', 'D', 'F', '-', '1', '.', '7'}));
+
+                SeekerRequest request = requests.create(authentication(seekerEmail, "Retention Seeker"),
+                        new CreateRequest(companyId, "Engineer", "", "", true, false));
+                assertEquals(1, count("referral_request_resumes", "request_id = ?", request.id()));
+
+                jdbc.sql("UPDATE company_referral_requests SET status = 'expired', "
+                        + "closed_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 31 DAY) WHERE id = ?")
+                        .param(request.id()).update();
+                entityManager.clear();
+
+                scheduler.processDueRequests();
+
+                assertEquals(0, count("referral_request_resumes", "request_id = ?", request.id()));
+                assertEquals(1, count("resume_files", "user_id = ?", seekerId));
+        }
+
+        @Test
         void jobUrlIsOptionalButMustUseHttpsWhenProvided() {
                 CreateRequest withoutUrl = new CreateRequest(1L, "Backend Engineer", "", "", true, false);
                 CreateRequest insecureUrl = new CreateRequest(1L, "Backend Engineer", "http://jobs.example.test/role", "", true, false);

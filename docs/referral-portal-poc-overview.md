@@ -167,7 +167,7 @@ The user confirms by typing `DELETE`. Deletion is permanent and runs in a transa
 
 ## 7. Database table guide
 
-The schema has **20 application tables**, grouped by what they represent:
+The schema has **21 application tables**, grouped by what they represent:
 
 | Table | Plain-language purpose | MVP status |
 |---|---|---|
@@ -191,6 +191,7 @@ The schema has **20 application tables**, grouped by what they represent:
 | `credit_ledger` | Request credits | PARTIAL; currently contributes zero |
 | `notifications` | Referral invitation and status notifications | IN MVP |
 | `resume_files` | Private seeker resume PDF storage | IN MVP |
+| `referral_request_resumes` | Immutable resume snapshot included with a referral request; retained 30 days after closure/expiry | IN MVP |
 
 ## 8. Initial data and quality status
 
