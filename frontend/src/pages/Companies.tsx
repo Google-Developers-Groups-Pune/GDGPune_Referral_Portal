@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowRight, Heart } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, type Companies, type Company, type Profile, type ResumeInfo } from '../api'
+import { api, type Companies, type Company, type Profile } from '../api'
 import { Avatar, Button, Card, Chip, EmptyState, ErrorNote, PageTitle, Spinner } from '../ui'
 
 function ReferralRequestSheet({ company, requestsLeft, onClose }: {
@@ -13,10 +13,6 @@ function ReferralRequestSheet({ company, requestsLeft, onClose }: {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const { data: profile } = useQuery({ queryKey: ['profile'], queryFn: () => api<Profile>('/api/me/profile') })
-  const { data: resumeInfo } = useQuery<ResumeInfo | null>({
-    queryKey: ['resume-info'],
-    queryFn: async () => (await api<ResumeInfo | null>('/api/me/resume/info')) ?? null,
-  })
   const [roleTitle, setRoleTitle] = useState('')
   const [jobUrl, setJobUrl] = useState('')
   const [seekerNote, setSeekerNote] = useState('')
@@ -104,7 +100,9 @@ function ReferralRequestSheet({ company, requestsLeft, onClose }: {
               <span>Share my profile summary with verified referrers at {company.name} (experience, skills, role interests, and pitch).</span>
             </label>
             <p className="text-sm text-muted">Your sign-in email is shared only with employees who accept.</p>
-            {resumeInfo && <p className="text-sm text-muted">Your resume will be shared with verified referrers at {company.name}.</p>}
+            <p className="text-sm text-muted">
+              By sending this request, you agree to share your uploaded resume with verified referrers at {company.name}.
+            </p>
             {profile?.phoneNumber && (
               <label className="flex items-start gap-2 text-sm">
                 <input type="checkbox" checked={sharePhone} onChange={(event) => setSharePhone(event.target.checked)} className="mt-1 accent-gblue" />
