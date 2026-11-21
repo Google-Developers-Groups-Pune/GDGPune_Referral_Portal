@@ -3,6 +3,7 @@ package com.referralportal.controller;
 import com.referralportal.dto.AuthDtos.LoginRequest;
 import com.referralportal.dto.AuthDtos.RegisterRequest;
 import com.referralportal.service.AuthService;
+import com.referralportal.service.LoginAttemptRateLimiter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -36,6 +37,8 @@ public class AuthController {
     @Autowired
     private AuthService auth;
     @Autowired
+    private LoginAttemptRateLimiter loginAttemptRateLimiter;
+    @Autowired
     private SessionAuthenticationStrategy sessionAuthenticationStrategy;
 
     private final SecurityContextRepository securityContextRepository = new HttpSessionSecurityContextRepository();
@@ -63,6 +66,7 @@ public class AuthController {
     public void login(@Valid @RequestBody LoginRequest request,
             HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
         auth.validatePasswordLength(request.password());
+        loginAttemptRateLimiter.checkAllowed(request.email(), httpRequest.getRemoteAddr());
         startSession(request.email(), request.password(), httpRequest, httpResponse);
     }
 
@@ -75,6 +79,7 @@ public class AuthController {
         } catch (AuthenticationException failed) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid email or password.");
         }
+        loginAttemptRateLimiter.recordSuccessfulLogin(email);
         sessionAuthenticationStrategy.onAuthentication(authentication, request, response);
         SecurityContext context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(authentication);
