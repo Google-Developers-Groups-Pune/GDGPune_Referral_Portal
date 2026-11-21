@@ -14,6 +14,10 @@ spring:
     open-in-view: false
     hibernate:
       ddl-auto: none # Flyway owns the schema
+  servlet:
+    multipart:
+      max-file-size: 5MB # resume upload cap; enforced again in ResumeService
+      max-request-size: 6MB
   flyway:
     enabled: true
   mail:
