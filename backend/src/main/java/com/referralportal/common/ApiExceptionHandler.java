@@ -6,6 +6,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.server.ResponseStatusException;
 
 /** Every API error is {"message": "..."} so the app can show it as-is. */
@@ -18,6 +19,12 @@ class ApiExceptionHandler {
     ResponseEntity<ErrorBody> status(ResponseStatusException e) {
         String message = e.getReason() == null ? "Something went wrong." : e.getReason();
         return ResponseEntity.status(e.getStatusCode()).body(new ErrorBody(message));
+    }
+
+    @ExceptionHandler(MissingServletRequestPartException.class)
+    ResponseEntity<ErrorBody> missingPart(MissingServletRequestPartException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ErrorBody("Choose a PDF file to upload."));
     }
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)

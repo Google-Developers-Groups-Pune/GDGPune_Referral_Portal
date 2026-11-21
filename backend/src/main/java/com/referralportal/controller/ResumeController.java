@@ -29,7 +29,7 @@ public class ResumeController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void upload(@RequestParam("file") MultipartFile file, Authentication auth) {
+    public void upload(@RequestParam(value = "file", required = false) MultipartFile file, Authentication auth) {
         resumes.upload(auth, file);
     }
 

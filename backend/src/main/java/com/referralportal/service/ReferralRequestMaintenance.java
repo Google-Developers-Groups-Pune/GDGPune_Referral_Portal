@@ -4,6 +4,7 @@ import com.referralportal.entity.CompanyReferralRequest;
 import com.referralportal.entity.ReferralRequestResponse;
 import com.referralportal.repository.jpa.CompanyReferralRequestJpaRepository;
 import com.referralportal.repository.jpa.ReferralRequestResponseJpaRepository;
+import com.referralportal.repository.jpa.ReferralRequestResumeJpaRepository;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
@@ -24,19 +25,25 @@ public class ReferralRequestMaintenance {
     private final ReferralRequestResponseJpaRepository responses;
     private final ReferralRequestBudget budget;
     private final ReferralNotificationService notifications;
+    private final ReferralRequestResumeJpaRepository requestResumes;
     private final TransactionTemplate transactions;
     private final boolean retryReminderFailures;
+    private final int requestResumeSnapshotRetentionDays;
 
     public ReferralRequestMaintenance(CompanyReferralRequestJpaRepository requests,
             ReferralRequestResponseJpaRepository responses, ReferralRequestBudget budget,
-            ReferralNotificationService notifications, TransactionTemplate transactions,
-            @Value("${app.referral-reminder-retry-enabled:false}") boolean retryReminderFailures) {
+            ReferralNotificationService notifications, ReferralRequestResumeJpaRepository requestResumes,
+            TransactionTemplate transactions,
+            @Value("${app.referral-reminder-retry-enabled:false}") boolean retryReminderFailures,
+            @Value("${app.resume-request-snapshot-retention-days:30}") int requestResumeSnapshotRetentionDays) {
         this.requests = requests;
         this.responses = responses;
         this.budget = budget;
         this.notifications = notifications;
+        this.requestResumes = requestResumes;
         this.transactions = transactions;
         this.retryReminderFailures = retryReminderFailures;
+        this.requestResumeSnapshotRetentionDays = requestResumeSnapshotRetentionDays;
     }
 
     public void processDueRequests() {
@@ -48,6 +55,8 @@ public class ReferralRequestMaintenance {
         for (Long responseId : responses.findStaleAcceptedIds(staleBefore)) {
             withLockedResponse(responseId, response -> closeStaleAssignment(response, staleBefore, now));
         }
+        requestResumes.deleteSnapshotsForClosedRequestsBefore(
+            now.minus(requestResumeSnapshotRetentionDays, ChronoUnit.DAYS));
         Instant dueBefore = now.minus(REMINDER_INTERVAL_DAYS, ChronoUnit.DAYS);
         int failures = 0;
         for (Long responseId : responses.findDueForReminderIds(dueBefore)) {

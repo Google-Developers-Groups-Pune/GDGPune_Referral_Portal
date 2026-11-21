@@ -1,15 +1,18 @@
 package com.referralportal.service;
 
 import com.referralportal.dto.ResumeDtos.ResumeInfo;
+import com.referralportal.entity.ReferralRequestResume;
 import com.referralportal.entity.ResumeFile;
 import com.referralportal.repository.jpa.ResumeFileJpaRepository;
-import com.referralportal.repository.jpa.UserJpaRepository;
+import com.referralportal.repository.jpa.ReferralRequestResponseJpaRepository;
+import com.referralportal.repository.jpa.ReferralRequestResumeJpaRepository;
 import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -30,7 +33,9 @@ public class ResumeService {
     @Autowired
     private ResumeFileJpaRepository resumes;
     @Autowired
-    private UserJpaRepository userJpa;
+    private ReferralRequestResponseJpaRepository responses;
+    @Autowired
+    private ReferralRequestResumeJpaRepository requestResumes;
 
     @Transactional
     public void upload(Authentication auth, MultipartFile file) {
@@ -50,17 +55,29 @@ public class ResumeService {
         if (!looksLikePdf(data)) {
             throw new ResponseStatusException(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "Only PDF resumes are accepted.");
         }
-        ResumeFile resume = resumes.findById(userId).orElseGet(ResumeFile::new);
-        if (resume.getUser() == null) {
-            resume.setUser(userJpa.getReferenceById(userId));
+        Instant uploadedAt = Instant.now();
+        resumes.upsert(userId, safeName(file.getOriginalFilename()), PDF, data.length,
+                sha256(data), data, uploadedAt);
+    }
+
+    public ReferralRequestResume downloadForReferrer(Authentication auth, long requestId) {
+        long referrerId = users.current(auth).id();
+        var response = responses.findByRequestIdAndReferrerId(requestId, referrerId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "You were not invited to this referral request."));
+        var request = response.getRequest();
+        boolean pendingAndOpen = "pending".equals(response.getStatus())
+            && "open".equals(request.getStatus())
+            && request.getExpiresAt().isAfter(Instant.now());
+        boolean accepted = Set.of("accepted", "submitted", "confirmed").contains(response.getStatus());
+        if (!pendingAndOpen && !accepted) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN,
+                "The resume is available only while your response is pending or accepted.");
         }
-        resume.setFilename(safeName(file.getOriginalFilename()));
-        resume.setContentType(PDF);
-        resume.setSizeBytes(data.length);
-        resume.setSha256(sha256(data));
-        resume.setData(data);
-        resume.setUploadedAt(Instant.now());
-        resumes.save(resume);
+        if (!request.isShareSeekerResume()) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No resume was included with this request.");
+        }
+        return requestResumes.findById(requestId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "No resume was included with this request."));
     }
 
     public ResumeFile download(Authentication auth) {
@@ -78,9 +95,8 @@ public class ResumeService {
     @Transactional
     public void delete(Authentication auth) {
         long userId = users.current(auth).id();
-        if (resumes.existsById(userId)) {
-            resumes.deleteById(userId);
-        }
+        requestResumes.deleteBySeekerId(userId);
+        resumes.deleteByUserId(userId);
     }
 
     /** Magic-byte check: a real PDF starts with "%PDF". Content-Type from the browser is not trusted. */

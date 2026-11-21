@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Copy, Inbox, Send } from 'lucide-react'
 import { useState } from 'react'
-import { api, type ReferralRequestInboxItem, type SeekerReferralRequest } from '../api'
+import { api, downloadPdf, type ReferralRequestInboxItem, type SeekerReferralRequest } from '../api'
 import { Avatar, Button, Card, Chip, EmptyState, ErrorNote, PageTitle, Spinner } from '../ui'
 
 type RequestAction =
@@ -94,6 +94,8 @@ function ReferrerInboxCard({ item, act, pending }: {
   const [sharePhone, setSharePhone] = useState(false)
   const [packetPreviewOpen, setPacketPreviewOpen] = useState(false)
   const [packetCopyMessage, setPacketCopyMessage] = useState('')
+  const [resumeDownloadError, setResumeDownloadError] = useState<string | null>(null)
+  const [resumeDownloadPending, setResumeDownloadPending] = useState(false)
   const status = label(item.status)
   const referralPacket = [
     'Referral details',
@@ -121,6 +123,18 @@ function ReferrerInboxCard({ item, act, pending }: {
       setPacketCopyMessage('Referral packet copied.')
     } catch {
       setPacketCopyMessage('Could not access the clipboard. Select and copy the preview text.')
+    }
+  }
+
+  const downloadResume = async () => {
+    setResumeDownloadError(null)
+    setResumeDownloadPending(true)
+    try {
+      await downloadPdf(`/api/referral-requests/${item.requestId}/resume`, `${item.seekerName}-resume.pdf`)
+    } catch (error) {
+      setResumeDownloadError(error instanceof Error ? error.message : 'Could not download the resume.')
+    } finally {
+      setResumeDownloadPending(false)
     }
   }
 
@@ -152,6 +166,14 @@ function ReferrerInboxCard({ item, act, pending }: {
         </div>
       )}
       {item.skills.length > 0 && <div className="flex flex-wrap gap-1.5">{item.skills.map((skill) => <Chip key={skill}>{skill}</Chip>)}</div>}
+      {item.resumeAvailable && (
+        <>
+          <ErrorNote message={resumeDownloadError} />
+          <Button variant="outline" disabled={resumeDownloadPending} className="w-full" onClick={() => void downloadResume()}>
+            {resumeDownloadPending ? 'Downloading…' : 'Download resume'}
+          </Button>
+        </>
+      )}
       {item.status === 'pending' && (
         <div className="space-y-3 border-t border-line pt-3">
           <p className="text-xs text-muted">Your contact details stay private unless you choose to share them. The seeker’s contact is shown only after you accept and only if they opted in.</p>

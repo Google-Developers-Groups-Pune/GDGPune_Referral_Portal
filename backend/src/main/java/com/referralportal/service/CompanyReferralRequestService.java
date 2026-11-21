@@ -8,7 +8,9 @@ import com.referralportal.entity.Profile;
 import com.referralportal.entity.Referral;
 import com.referralportal.entity.ReferralRequestCredit;
 import com.referralportal.entity.ReferralRequestResponse;
+import com.referralportal.entity.ReferralRequestResume;
 import com.referralportal.entity.ReferrerProfile;
+import com.referralportal.entity.ResumeFile;
 import com.referralportal.entity.User;
 import com.referralportal.repository.jpa.CompanyJpaRepository;
 import com.referralportal.repository.jpa.CompanyReferralRequestJpaRepository;
@@ -18,6 +20,8 @@ import com.referralportal.repository.jpa.ReferralJpaRepository;
 import com.referralportal.repository.jpa.ReferralRequestCreditJpaRepository;
 import com.referralportal.repository.jpa.ReferralRequestResponseJpaRepository;
 import com.referralportal.repository.jpa.ReferrerProfileJpaRepository;
+import com.referralportal.repository.jpa.ResumeFileJpaRepository;
+import com.referralportal.repository.jpa.ReferralRequestResumeJpaRepository;
 import com.referralportal.repository.jpa.UserJpaRepository;
 import com.referralportal.user.CurrentUser;
 import java.time.Instant;
@@ -26,6 +30,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
@@ -69,6 +74,10 @@ public class CompanyReferralRequestService {
     private ReferralRequestBudget budget;
     @Autowired
     private ReferralNotificationService notifications;
+    @Autowired
+    private ResumeFileJpaRepository resumeFiles;
+    @Autowired
+    private ReferralRequestResumeJpaRepository requestResumes;
 
     @Transactional
     public SeekerRequest create(Authentication authentication, CreateRequest input) {
@@ -84,6 +93,8 @@ public class CompanyReferralRequestService {
         if (Boolean.TRUE.equals(input.shareSeekerPhone()) && blank(profile.getPhoneNumber())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Add a phone number to your profile before sharing it.");
         }
+        ResumeFile uploadedResume = resumeFiles.findById(current.id()).orElse(null);
+        boolean hasResume = uploadedResume != null;
         Company company = companies.findById(input.companyId())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Company not found."));
         Optional<ReferrerProfile> seekerReferrer = referrerProfiles.findById(current.id());
@@ -91,10 +102,10 @@ public class CompanyReferralRequestService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "You cannot request a referral from your own company.");
         }
         List<ReferrerProfile> eligible = referrerProfiles
-                .findByCompany_IdAndVerifiedAtIsNotNullAndReferrerTrueAndAcceptsReferralRequestsTrue(company.getId())
+                .findByCompany_IdAndVerifiedAtIsNotNullAndReferrerTrue(company.getId())
                 .stream().filter(rp -> !rp.getUserId().equals(current.id())).toList();
         if (eligible.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "This company is not accepting referral requests right now.");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This company has no verified referrers yet.");
         }
         String roleTitle = input.roleTitle().trim();
         if (!requests.findActiveDuplicate(current.id(), company.getId(), roleTitle).isEmpty()) {
@@ -113,9 +124,21 @@ public class CompanyReferralRequestService {
         request.setShareProfile(true);
         request.setShareSeekerEmail(true);
         request.setShareSeekerPhone(Boolean.TRUE.equals(input.shareSeekerPhone()));
+        request.setShareSeekerResume(hasResume);
         request.setCreatedAt(now);
         request.setExpiresAt(now.plus(REQUEST_DAYS, ChronoUnit.DAYS));
         request = requests.save(request);
+        if (uploadedResume != null) {
+            ReferralRequestResume snapshot = new ReferralRequestResume();
+            snapshot.setRequestId(request.getId());
+            snapshot.setFilename(uploadedResume.getFilename());
+            snapshot.setContentType(uploadedResume.getContentType());
+            snapshot.setSizeBytes(uploadedResume.getSizeBytes());
+            snapshot.setSha256(uploadedResume.getSha256());
+            snapshot.setData(uploadedResume.getData());
+            snapshot.setUploadedAt(uploadedResume.getUploadedAt());
+            requestResumes.save(snapshot);
+        }
         budget.charge(current.id(), request, now);
 
         for (ReferrerProfile referrerProfile : eligible) {
@@ -138,7 +161,14 @@ public class CompanyReferralRequestService {
     @Transactional(readOnly = true)
     public List<ReferrerInboxItem> inbox(Authentication authentication) {
         long referrerId = users.current(authentication).id();
-        return responses.findInboxByReferrerId(referrerId).stream().map(this::inboxItem).toList();
+        List<ReferralRequestResponse> inbox = responses.findInboxByReferrerId(referrerId);
+        if (inbox.isEmpty()) {
+            return List.of();
+        }
+        List<Long> requestIds = inbox.stream().map(response -> response.getRequest().getId()).toList();
+        Set<Long> requestIdsWithResume = Set.copyOf(requestResumes.findRequestIdsWithResume(requestIds));
+        return inbox.stream().map(response -> inboxItem(response,
+                requestIdsWithResume.contains(response.getRequest().getId()))).toList();
     }
 
     @Transactional
@@ -157,8 +187,9 @@ public class CompanyReferralRequestService {
         }
         ReferrerProfile referrer = referrerProfiles.findByUserIdForUpdate(current.id())
                 .filter(profile -> profile.getVerifiedAt() != null && profile.isReferrer()
-                        && profile.isAcceptsReferralRequests() && profile.getCompany().getId().equals(request.getCompany().getId()))
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "Enable referral requests in your verified referrer settings first."));
+                && profile.getCompany().getId().equals(request.getCompany().getId()))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN,
+                    "You must be a verified referrer at this company to respond to referral requests."));
         String referrerPhone = Optional.ofNullable(referrer.getUser().getProfile()).map(Profile::getPhoneNumber).orElse(null);
         if (Boolean.TRUE.equals(input.shareReferrerPhone()) && blank(referrerPhone)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Add a phone number to your profile before sharing it.");
@@ -331,7 +362,7 @@ public class CompanyReferralRequestService {
                 pending, declined, accepted);
     }
 
-    private ReferrerInboxItem inboxItem(ReferralRequestResponse response) {
+    private ReferrerInboxItem inboxItem(ReferralRequestResponse response, boolean hasResumeSnapshot) {
         CompanyReferralRequest request = response.getRequest();
         User seeker = request.getSeeker();
         Profile profile = profiles.findById(seeker.getId()).orElse(null);
@@ -341,6 +372,12 @@ public class CompanyReferralRequestService {
         String phone = accepted && request.isShareSeekerPhone() && profile != null ? profile.getPhoneNumber() : null;
         boolean canSharePhone = Optional.ofNullable(response.getReferrer().getProfile())
             .map(Profile::getPhoneNumber).filter(value -> !value.isBlank()).isPresent();
+        boolean pendingAndOpen = "pending".equals(response.getStatus())
+            && "open".equals(request.getStatus()) && request.getExpiresAt().isAfter(Instant.now());
+        boolean resumeAccessAllowed = pendingAndOpen
+            || java.util.Set.of("accepted", "submitted", "confirmed").contains(response.getStatus());
+        boolean resumeAvailable = resumeAccessAllowed && request.isShareSeekerResume()
+            && hasResumeSnapshot;
         List<String> referralRolePreferences = referrerProfiles.findById(response.getReferrer().getId())
             .map(referrer -> ChipLists.fromJson(referrer.getReferralRolePreferences())).orElse(List.of());
         return new ReferrerInboxItem(response.getId(), request.getId(), request.getCompany().getName(), request.getRoleTitle(),
@@ -351,7 +388,7 @@ public class CompanyReferralRequestService {
                 profileShared ? profile.getGithubUrl() : null,
                 profileShared ? profile.getLinkedinUrl() : null,
                 profileShared ? profile.getPortfolioUrl() : null,
-                request.getSeekerNote(), canSharePhone, email, phone,
+                request.getSeekerNote(), canSharePhone, email, phone, resumeAvailable,
             response.getStatus(), time(response.getCreatedAt()),
                 time(response.getAcceptedAt()), time(response.getSubmittedAt()), response.getRemindersSent());
     }

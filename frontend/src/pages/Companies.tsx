@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowRight, Heart } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, type Companies, type Company, type Profile } from '../api'
+import { api, type Companies, type Company, type Profile, type ResumeInfo } from '../api'
 import { Avatar, Button, Card, Chip, EmptyState, ErrorNote, PageTitle, Spinner } from '../ui'
 
 function ReferralRequestSheet({ company, requestsLeft, onClose }: {
@@ -13,6 +13,10 @@ function ReferralRequestSheet({ company, requestsLeft, onClose }: {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const { data: profile } = useQuery({ queryKey: ['profile'], queryFn: () => api<Profile>('/api/me/profile') })
+  const { data: resumeInfo } = useQuery<ResumeInfo | null>({
+    queryKey: ['resume-info'],
+    queryFn: async () => (await api<ResumeInfo | null>('/api/me/resume/info')) ?? null,
+  })
   const [roleTitle, setRoleTitle] = useState('')
   const [jobUrl, setJobUrl] = useState('')
   const [seekerNote, setSeekerNote] = useState('')
@@ -47,7 +51,7 @@ function ReferralRequestSheet({ company, requestsLeft, onClose }: {
           </div>
           <button type="button" onClick={onClose} aria-label="Close request form" className="rounded-full px-3 py-1 text-muted hover:bg-line/60">Close</button>
         </div>
-        <p className="mt-3 text-sm text-muted">Your request goes to employees who opted in at this company. Accepting means someone is willing to help; it does not guarantee an opening, referral, or interview.</p>
+        <p className="mt-3 text-sm text-muted">Your request goes to verified referrers at this company. Accepting means someone is willing to help; it does not guarantee an opening, referral, or interview.</p>
         <form
           className="mt-4 space-y-4"
           onSubmit={(event) => {
@@ -99,6 +103,7 @@ function ReferralRequestSheet({ company, requestsLeft, onClose }: {
               <span>Share my profile summary with invited referrers (experience, skills, role interests, and pitch).</span>
             </label>
             <p className="text-sm text-muted">Your sign-in email is shared only with employees who accept.</p>
+            {resumeInfo && <p className="text-sm text-muted">Your resume will be shared with verified referrers at {company.name}.</p>}
             {profile?.phoneNumber && (
               <label className="flex items-start gap-2 text-sm">
                 <input type="checkbox" checked={sharePhone} onChange={(event) => setSharePhone(event.target.checked)} className="mt-1 accent-gblue" />
@@ -134,7 +139,7 @@ export default function CompaniesPage() {
 
   return (
     <div>
-      <PageTitle title="Companies" subtitle="Ask for help from employees who have opted in to referring candidates." />
+      <PageTitle title="Companies" subtitle="Ask for help from verified referrers at their companies." />
       <div className="mb-4 flex flex-wrap gap-2">
         <Chip tone={0}>Wishlist {data.wishlistCount} of {data.wishlistMax}</Chip>
         <Chip tone={2}>{data.referralRequestsLeft} referral requests left</Chip>
@@ -143,7 +148,7 @@ export default function CompaniesPage() {
       </div>
       <ErrorNote message={toggle.error?.message ?? null} />
       {data.companies.length === 0 ? (
-        <EmptyState title="No companies are accepting requests yet" text="Check back when employees at more companies opt in to help with referrals." />
+        <EmptyState title="No companies have verified referrers yet" text="Check back when more employees verify their work email." />
       ) : (
         <div className="space-y-3">
           {data.companies.map((company) => (
