@@ -29,10 +29,7 @@ public class AuthService {
 
     @Transactional
     public void register(String name, String email, String rawPassword) {
-        if (rawPassword.getBytes(StandardCharsets.UTF_8).length > BCRYPT_MAX_PASSWORD_BYTES) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "Password must be no more than 72 UTF-8 bytes.");
-        }
+        validatePasswordLength(rawPassword);
         String normalizedEmail = email.trim().toLowerCase();
         if (userJpa.findByEmail(normalizedEmail).isPresent()) {
             throw emailTaken();
@@ -41,6 +38,13 @@ public class AuthService {
             users.createPasswordAccount(name.trim(), normalizedEmail, passwordEncoder.encode(rawPassword), newToken());
         } catch (DataIntegrityViolationException concurrentInsert) {
             throw emailTaken();
+        }
+    }
+
+    public void validatePasswordLength(String rawPassword) {
+        if (rawPassword.getBytes(StandardCharsets.UTF_8).length > BCRYPT_MAX_PASSWORD_BYTES) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Password must be no more than 72 UTF-8 bytes.");
         }
     }
 

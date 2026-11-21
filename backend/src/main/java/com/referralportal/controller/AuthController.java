@@ -62,6 +62,7 @@ public class AuthController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void login(@Valid @RequestBody LoginRequest request,
             HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
+        auth.validatePasswordLength(request.password());
         startSession(request.email(), request.password(), httpRequest, httpResponse);
     }
 
