@@ -3,6 +3,7 @@ package com.referralportal.controller;
 import com.referralportal.dto.AuthDtos.LoginRequest;
 import com.referralportal.dto.AuthDtos.RegisterRequest;
 import com.referralportal.service.AuthService;
+import com.referralportal.service.LoginAttemptRateLimiter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
@@ -16,6 +17,7 @@ import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
 import org.springframework.security.web.context.SecurityContextRepository;
+import org.springframework.security.web.authentication.session.SessionAuthenticationStrategy;
 import org.springframework.security.web.csrf.CsrfToken;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -34,6 +36,10 @@ public class AuthController {
     private AuthenticationManager authenticationManager;
     @Autowired
     private AuthService auth;
+    @Autowired
+    private LoginAttemptRateLimiter loginAttemptRateLimiter;
+    @Autowired
+    private SessionAuthenticationStrategy sessionAuthenticationStrategy;
 
     private final SecurityContextRepository securityContextRepository = new HttpSessionSecurityContextRepository();
 
@@ -59,6 +65,8 @@ public class AuthController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void login(@Valid @RequestBody LoginRequest request,
             HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
+        auth.validatePasswordLength(request.password());
+        loginAttemptRateLimiter.checkAllowed(request.email(), httpRequest.getRemoteAddr());
         startSession(request.email(), request.password(), httpRequest, httpResponse);
     }
 
@@ -71,6 +79,8 @@ public class AuthController {
         } catch (AuthenticationException failed) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid email or password.");
         }
+        loginAttemptRateLimiter.recordSuccessfulLogin(email);
+        sessionAuthenticationStrategy.onAuthentication(authentication, request, response);
         SecurityContext context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(authentication);
         SecurityContextHolder.setContext(context);

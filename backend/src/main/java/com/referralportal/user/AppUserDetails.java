@@ -10,7 +10,9 @@ import org.springframework.security.core.userdetails.UserDetails;
  * UserDetails for email/password accounts. Carries the user row's identity so the session
  * principal can be mapped back to a user without an extra lookup (see UserService#current).
  */
-public class AppUserDetails implements UserDetails {
+public class AppUserDetails implements UserDetails, java.io.Serializable {
+
+    private static final long serialVersionUID = 1L;
 
     private final long id;
     private final String email;
