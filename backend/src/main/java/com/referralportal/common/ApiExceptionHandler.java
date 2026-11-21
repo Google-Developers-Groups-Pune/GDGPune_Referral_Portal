@@ -5,6 +5,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.server.ResponseStatusException;
 
 /** Every API error is {"message": "..."} so the app can show it as-is. */
@@ -17,6 +18,12 @@ class ApiExceptionHandler {
     ResponseEntity<ErrorBody> status(ResponseStatusException e) {
         String message = e.getReason() == null ? "Something went wrong." : e.getReason();
         return ResponseEntity.status(e.getStatusCode()).body(new ErrorBody(message));
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    ResponseEntity<ErrorBody> tooLarge(MaxUploadSizeExceededException e) {
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+                .body(new ErrorBody("Resume must be 5 MB or smaller."));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
