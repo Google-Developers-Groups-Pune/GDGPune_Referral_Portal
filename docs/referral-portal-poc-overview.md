@@ -29,6 +29,7 @@ The MVP supports the referral handoff between job seekers and verified employees
 | Capability | MVP status | Notes |
 |---|---|---|
 | Google and GitHub sign-in | IN MVP | OAuth creates a user the first time; later sign-ins reuse the account by email. |
+| Email/password sign-in | IN MVP | Signup verifies email ownership before creating a user account. |
 | Seeker profile | IN MVP | Experience, skills, roles wanted, pitch, GitHub/LinkedIn/portfolio links, optional phone, and PDF resume upload. |
 | Work-email verification | IN MVP | Six-digit emailed code; unlocks referrer settings. It is not required to sign in or save a seeker profile. |
 | Company directory | IN MVP | Companies with at least one verified referrer; employee identities are not listed. |

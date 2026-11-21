@@ -2,6 +2,7 @@ package com.referralportal.controller;
 
 import com.referralportal.dto.AuthDtos.LoginRequest;
 import com.referralportal.dto.AuthDtos.RegisterRequest;
+import com.referralportal.dto.AuthDtos.VerifyRegistrationRequest;
 import com.referralportal.service.AuthService;
 import com.referralportal.service.LoginAttemptRateLimiter;
 import jakarta.servlet.http.HttpServletRequest;
@@ -54,10 +55,16 @@ public class AuthController {
     }
 
     @PostMapping("/register")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public void register(@Valid @RequestBody RegisterRequest request, HttpServletRequest httpRequest) {
+        auth.beginRegistration(request.name(), request.email(), request.password(), httpRequest.getRemoteAddr());
+    }
+
+    @PostMapping("/register/verify")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void register(@Valid @RequestBody RegisterRequest request,
+    public void verifyRegistration(@Valid @RequestBody VerifyRegistrationRequest request,
             HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
-        auth.register(request.name(), request.email(), request.password());
+        auth.verifyRegistration(request.email(), request.code(), request.password());
         startSession(request.email(), request.password(), httpRequest, httpResponse);
     }
 

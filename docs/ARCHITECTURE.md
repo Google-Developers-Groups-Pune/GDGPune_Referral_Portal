@@ -231,8 +231,9 @@ implemented in the current UI.
 
 ## Cross-cutting behavior
 
-- **Authentication:** Google/GitHub OAuth creates an application session. API routes
-  require authentication; mutations use the CSRF token cookie/header pair.
+- **Authentication:** Google/GitHub OAuth creates an application session. Email/password
+    registration creates an account only after email OTP verification. API routes require
+    authentication; mutations use the CSRF token cookie/header pair.
 - **Work-email verification:** verifying a work email by OTP automatically enables the
     employee to receive referral requests for that company.
 - **Notifications:** referral invitations and lifecycle events are persisted as in-app

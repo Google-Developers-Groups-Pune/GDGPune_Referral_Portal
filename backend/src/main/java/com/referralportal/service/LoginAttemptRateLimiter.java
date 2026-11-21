@@ -55,6 +55,18 @@ public class LoginAttemptRateLimiter {
         }
     }
 
+    @Transactional(noRollbackFor = ResponseStatusException.class)
+    public void checkRegistrationAllowed(String email, String clientIp) {
+        if (increment("registration-ip", clientIp) > ipAttemptLimit) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                    "Too many registration attempts from this network. Try again later.");
+        }
+        if (increment("registration-email", normalizeEmail(email)) > accountAttemptLimit) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                    "Too many verification codes requested. Try again in 15 minutes.");
+        }
+    }
+
     @Transactional
     public void recordSuccessfulLogin(String email) {
         jdbcTemplate.update("""
@@ -62,6 +74,15 @@ public class LoginAttemptRateLimiter {
                 SET window_started_at = UTC_TIMESTAMP(6), attempt_count = 0
                 WHERE bucket_hash = ?
                 """, fingerprint("email", normalizeEmail(email)));
+    }
+
+    @Transactional
+    public void recordSuccessfulRegistration(String email) {
+        jdbcTemplate.update("""
+                UPDATE auth_login_rate_limits
+                SET window_started_at = UTC_TIMESTAMP(6), attempt_count = 0
+                WHERE bucket_hash = ?
+                """, fingerprint("registration-email", normalizeEmail(email)));
     }
 
     @Scheduled(fixedDelayString = "${app.auth.login-rate-limit.cleanup-delay:21600000}")
