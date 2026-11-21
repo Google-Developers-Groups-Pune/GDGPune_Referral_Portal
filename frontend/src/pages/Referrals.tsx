@@ -6,7 +6,7 @@ import { Avatar, Button, Card, Chip, EmptyState, ErrorNote, PageTitle, Spinner }
 
 type RequestAction =
   | { kind: 'accept'; requestId: number; shareReferrerEmail: boolean; shareReferrerPhone: boolean }
-  | { kind: 'decline' | 'cancel' | 'submitted'; requestId: number }
+  | { kind: 'decline' | 'cancel' | 'submitted' | 'continue'; requestId: number }
   | { kind: 'confirm'; requestId: number; responseId: number }
 
 function label(status: string) {
@@ -21,6 +21,8 @@ function label(status: string) {
     submitted: { text: 'Submitted', tone: 0 },
     confirmed: { text: 'Confirmed', tone: 3 },
     closed: { text: 'Closed', tone: 1 },
+    awaiting_seeker: { text: 'Your decision', tone: 2 },
+    accepted_elsewhere: { text: 'Another referrer accepted', tone: 1 },
   }
   return values[status] ?? { text: status, tone: 0 }
 }
@@ -47,6 +49,15 @@ function SeekerRequestCard({ request, act, pending }: {
       {(request.status === 'open' || request.status === 'no_acceptances') && (
         <p className="text-xs text-muted">{request.pendingCount} awaiting · {request.declinedCount} declined. Unanswered requests expire {new Date(request.expiresAt).toLocaleDateString()} and return one request to your allowance.</p>
       )}
+      {request.canContinueWithOtherReferrers && (
+        <div className="space-y-2 border-t border-line pt-3">
+          <p className="text-sm">The referrer did not submit in time. {request.otherReferrerCount} other verified referrer{request.otherReferrerCount === 1 ? '' : 's'} can still help. Continue your request?</p>
+          <Button disabled={pending} className="w-full" onClick={() => act({ kind: 'continue', requestId: request.id })}>
+            Continue with other referrers
+          </Button>
+        </div>
+      )}
+      {request.creditReturned && <p className="text-sm text-muted">No referrers remained, so your request credit was returned.</p>}
       {request.responses.length > 0 && (
         <div className="space-y-2 border-t border-line pt-3">
           <p className="text-xs font-bold uppercase tracking-wide text-muted">Employees who accepted</p>
@@ -193,6 +204,9 @@ function ReferrerInboxCard({ item, act, pending }: {
           </div>
         </div>
       )}
+      {item.status === 'accepted_elsewhere' && (
+        <p className="text-sm text-muted">Another referrer at your company accepted this request. The seeker may reopen it if they need another referrer.</p>
+      )}
       {item.status === 'accepted' && (
         <div className="space-y-3 border-t border-line pt-3">
           {(item.seekerEmail || item.seekerPhone) && (
@@ -258,6 +272,9 @@ export default function ReferralsPage() {
       if (input.kind === 'confirm') {
         return api(`/api/referral-requests/${input.requestId}/responses/${input.responseId}/confirm`, { method: 'POST' })
       }
+      if (input.kind === 'continue') {
+        return api(`/api/referral-requests/${input.requestId}/continue`, { method: 'POST' })
+      }
       throw new Error('Unknown referral request action.')
     },
     onSuccess: async () => {
@@ -274,7 +291,8 @@ export default function ReferralsPage() {
     item.status === 'pending' || item.status === 'accepted' || item.status === 'submitted',
   )
   const historyInboxItems = inbox.data.filter((item) =>
-    item.status === 'declined' || item.status === 'expired' || item.status === 'confirmed' || item.status === 'closed',
+    item.status === 'declined' || item.status === 'expired' || item.status === 'confirmed'
+      || item.status === 'closed' || item.status === 'accepted_elsewhere',
   )
   return (
     <div>
