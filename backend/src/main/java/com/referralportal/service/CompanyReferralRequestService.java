@@ -90,6 +90,9 @@ public class CompanyReferralRequestService {
         if (!Boolean.TRUE.equals(input.shareProfile())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Choose whether to share your profile with invited referrers.");
         }
+        if (blank(input.jobUrl())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Provide a job link.");
+        }
         if (Boolean.TRUE.equals(input.shareSeekerPhone()) && blank(profile.getPhoneNumber())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Add a phone number to your profile before sharing it.");
         }

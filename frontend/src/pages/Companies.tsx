@@ -72,10 +72,11 @@ function ReferralRequestSheet({ company, requestsLeft, onClose }: {
             />
           </div>
           <div>
-            <label className="text-sm font-semibold" htmlFor="job-url">Job link <span className="font-normal text-muted">(optional)</span></label>
+            <label className="text-sm font-semibold" htmlFor="job-url">Job link</label>
             <input
               id="job-url"
               type="url"
+              required
               maxLength={500}
               value={jobUrl}
               onChange={(event) => setJobUrl(event.target.value)}
@@ -100,7 +101,7 @@ function ReferralRequestSheet({ company, requestsLeft, onClose }: {
             <legend className="px-1 text-sm font-bold">Information sharing</legend>
             <label className="flex items-start gap-2 text-sm">
               <input type="checkbox" checked={shareProfile} onChange={(event) => setShareProfile(event.target.checked)} className="mt-1 accent-gblue" />
-              <span>Share my profile summary with invited referrers (experience, skills, role interests, and pitch).</span>
+              <span>Share my profile summary with verified referrers at {company.name} (experience, skills, role interests, and pitch).</span>
             </label>
             <p className="text-sm text-muted">Your sign-in email is shared only with employees who accept.</p>
             {resumeInfo && <p className="text-sm text-muted">Your resume will be shared with verified referrers at {company.name}.</p>}
