@@ -87,7 +87,7 @@ class CompanyReferralRequestFlowTests {
     private JavaMailSender mailSender;
 
     @Test
-    void invitesEveryOptedInEmployeeAndSharesContactsOnlyAfterAcceptance() {
+        void firstVerifiedReferrerAcceptanceLocksOutOtherReferrers() {
         String suffix = UUID.randomUUID().toString().replace("-", "");
         String seekerEmail = "seeker-" + suffix + "@example.test";
         String firstReferrerEmail = "first-" + suffix + "@example.test";
@@ -121,11 +121,14 @@ class CompanyReferralRequestFlowTests {
         requests.accept(authentication(firstReferrerEmail, "First Referrer"), request.id(), new AcceptRequest(true, true));
         assertEquals(seekerEmail, inboxItem(requests.inbox(authentication(firstReferrerEmail, "First Referrer")))
                 .seekerEmail());
-        assertNull(inboxItem(requests.inbox(authentication(secondReferrerEmail, "Second Referrer")))
-                .seekerEmail());
-        requests.accept(authentication(secondReferrerEmail, "Second Referrer"), request.id(), new AcceptRequest(false, false));
+        ReferrerInboxItem otherInbox = inboxItem(requests.inbox(authentication(secondReferrerEmail, "Second Referrer")));
+        assertEquals("accepted_elsewhere", otherInbox.status());
+        assertNull(otherInbox.seekerEmail());
+        ResponseStatusException alreadyAccepted = assertThrows(ResponseStatusException.class,
+                () -> requests.accept(authentication(secondReferrerEmail, "Second Referrer"), request.id(), new AcceptRequest(false, false)));
+        assertEquals(HttpStatus.CONFLICT, alreadyAccepted.getStatusCode());
         SeekerRequest afterAccept = requests.seekerRequests(authentication(seekerEmail, "Seeker")).getFirst();
-        assertEquals(2, afterAccept.responses().size());
+        assertEquals(1, afterAccept.responses().size());
         var sharedResponse = afterAccept.responses().stream()
                 .filter(response -> response.referrerEmail() != null).findFirst().orElseThrow();
         assertEquals("first-work-" + suffix + "@company.test", sharedResponse.referrerEmail());
@@ -137,6 +140,116 @@ class CompanyReferralRequestFlowTests {
         assertEquals(1, count("referral_request_credits", "user_id = ?", firstReferrerId));
         assertEquals(1, count("referrals", "referrer_id = ? AND candidate_id = ? AND company_id = ?",
                 firstReferrerId, seekerId, companyId));
+    }
+
+    @Test
+    void seekerCanContinueWithRemainingReferrersAfterFourDayAssignmentTimeout() {
+        String suffix = UUID.randomUUID().toString().replace("-", "");
+        String seekerEmail = "continue-seeker-" + suffix + "@example.test";
+        String firstEmail = "continue-first-" + suffix + "@example.test";
+        String secondEmail = "continue-second-" + suffix + "@example.test";
+        long seekerId = insertUser("Continue Seeker", seekerEmail);
+        long firstReferrerId = insertUser("First Referrer", firstEmail);
+        long secondReferrerId = insertUser("Second Referrer", secondEmail);
+        long companyId = insertCompany(suffix);
+        insertProfile(seekerId, null);
+        insertProfile(firstReferrerId, null);
+        insertProfile(secondReferrerId, null);
+        insertReferrer(firstReferrerId, companyId, "continue-first-work-" + suffix + "@company.test");
+        insertReferrer(secondReferrerId, companyId, "continue-second-work-" + suffix + "@company.test");
+
+        SeekerRequest request = requests.create(authentication(seekerEmail, "Continue Seeker"),
+                new CreateRequest(companyId, "Engineer", "https://jobs.example.test/engineer", "", true, false));
+        requests.accept(authentication(firstEmail, "First Referrer"), request.id(), new AcceptRequest(false, false));
+        entityManager.flush();
+        jdbc.sql("UPDATE referral_request_responses SET accepted_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 5 DAY) "
+                + "WHERE request_id = ? AND referrer_id = ?").params(request.id(), firstReferrerId).update();
+        jdbc.sql("UPDATE company_referral_requests SET expires_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 1 MINUTE) "
+                + "WHERE id = ?").param(request.id()).update();
+        entityManager.clear();
+
+        scheduler.processDueRequests();
+
+        SeekerRequest awaiting = requests.seekerRequests(authentication(seekerEmail, "Continue Seeker")).getFirst();
+        assertEquals("awaiting_seeker", awaiting.status());
+        assertTrue(awaiting.canContinueWithOtherReferrers());
+        assertEquals(1, awaiting.otherReferrerCount());
+
+        requests.continueWithOtherReferrers(authentication(seekerEmail, "Continue Seeker"), request.id());
+        assertEquals("pending", inboxItem(requests.inbox(authentication(secondEmail, "Second Referrer"))).status());
+        requests.accept(authentication(secondEmail, "Second Referrer"), request.id(), new AcceptRequest(false, false));
+        assertEquals("accepted", responses.findByRequestIdAndReferrerId(request.id(), secondReferrerId).orElseThrow().getStatus());
+    }
+
+    @Test
+    void refundsAllowanceWhenTimedOutReferrerHasNoOtherReferrersToContinueWith() {
+        String suffix = UUID.randomUUID().toString().replace("-", "");
+        String seekerEmail = "refund-timeout-seeker-" + suffix + "@example.test";
+        String referrerEmail = "refund-timeout-referrer-" + suffix + "@example.test";
+        long seekerId = insertUser("Refund Timeout Seeker", seekerEmail);
+        long referrerId = insertUser("Only Referrer", referrerEmail);
+        long companyId = insertCompany(suffix);
+        insertProfile(seekerId, null);
+        insertProfile(referrerId, null);
+        insertReferrer(referrerId, companyId, "only-work-" + suffix + "@company.test");
+
+        SeekerRequest request = requests.create(authentication(seekerEmail, "Refund Timeout Seeker"),
+                new CreateRequest(companyId, "Engineer", "https://jobs.example.test/engineer", "", true, false));
+        requests.accept(authentication(referrerEmail, "Only Referrer"), request.id(), new AcceptRequest(false, false));
+        entityManager.flush();
+        jdbc.sql("UPDATE referral_request_responses SET accepted_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 5 DAY) "
+                + "WHERE request_id = ?").param(request.id()).update();
+        jdbc.sql("UPDATE company_referral_requests SET expires_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 1 MINUTE) "
+                + "WHERE id = ?").param(request.id()).update();
+        entityManager.clear();
+
+        scheduler.processDueRequests();
+
+        SeekerRequest expired = requests.seekerRequests(authentication(seekerEmail, "Refund Timeout Seeker")).getFirst();
+        assertEquals("expired", expired.status());
+        assertTrue(expired.creditReturned());
+        assertEquals(2, budget.allowance(seekerId, Instant.now()).left());
+    }
+
+    @Test
+    void refundsAllowanceWhenSeekerDoesNotContinueWithinFourDays() {
+        String suffix = UUID.randomUUID().toString().replace("-", "");
+        String seekerEmail = "decision-seeker-" + suffix + "@example.test";
+        String firstEmail = "decision-first-" + suffix + "@example.test";
+        String secondEmail = "decision-second-" + suffix + "@example.test";
+        long seekerId = insertUser("Decision Seeker", seekerEmail);
+        long firstReferrerId = insertUser("First Decision Referrer", firstEmail);
+        long secondReferrerId = insertUser("Second Decision Referrer", secondEmail);
+        long companyId = insertCompany(suffix);
+        insertProfile(seekerId, null);
+        insertProfile(firstReferrerId, null);
+        insertProfile(secondReferrerId, null);
+        insertReferrer(firstReferrerId, companyId, "decision-first-work-" + suffix + "@company.test");
+        insertReferrer(secondReferrerId, companyId, "decision-second-work-" + suffix + "@company.test");
+
+        SeekerRequest request = requests.create(authentication(seekerEmail, "Decision Seeker"),
+                new CreateRequest(companyId, "Engineer", "https://jobs.example.test/engineer", "", true, false));
+        requests.accept(authentication(firstEmail, "First Decision Referrer"), request.id(), new AcceptRequest(false, false));
+        entityManager.flush();
+        jdbc.sql("UPDATE referral_request_responses SET accepted_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 5 DAY) "
+                + "WHERE request_id = ? AND referrer_id = ?").params(request.id(), firstReferrerId).update();
+        jdbc.sql("UPDATE company_referral_requests SET expires_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 1 MINUTE) "
+                + "WHERE id = ?").param(request.id()).update();
+        entityManager.clear();
+
+        scheduler.processDueRequests();
+        assertTrue(requests.seekerRequests(authentication(seekerEmail, "Decision Seeker")).getFirst()
+                .canContinueWithOtherReferrers());
+
+        jdbc.sql("UPDATE company_referral_requests SET closed_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 5 DAY) "
+                + "WHERE id = ?").param(request.id()).update();
+        entityManager.clear();
+        scheduler.processDueRequests();
+
+        SeekerRequest expired = requests.seekerRequests(authentication(seekerEmail, "Decision Seeker")).getFirst();
+        assertEquals("expired", expired.status());
+        assertTrue(expired.creditReturned());
+        assertEquals(2, budget.allowance(seekerId, Instant.now()).left());
     }
 
         @Test
@@ -268,8 +381,8 @@ class CompanyReferralRequestFlowTests {
                 assertTrue(directory.companies().stream().anyMatch(company -> company.id() == secondCompanyId));
                 assertTrue(directory.companies().stream().noneMatch(company -> company.id() == unverifiedCompanyId));
                 assertEquals(5, directory.companies().getFirst().getClass().getRecordComponents().length);
-                assertEquals(5, directory.referralRequestsMax());
-                assertEquals(5, directory.referralRequestsLeft());
+                assertEquals(2, directory.referralRequestsMax());
+                assertEquals(2, directory.referralRequestsLeft());
                 assertEquals(0, directory.referralBonusCredits());
         }
 
@@ -312,11 +425,11 @@ class CompanyReferralRequestFlowTests {
 
         assertEquals("expired", jdbc.sql("SELECT status FROM company_referral_requests WHERE id = ?")
                 .param(request.id()).query(String.class).single());
-        assertEquals(5, budget.allowance(seekerId, Instant.now()).left());
+        assertEquals(2, budget.allowance(seekerId, Instant.now()).left());
     }
 
         @Test
-        void limitsAllSeekersToFiveBaseCompanyRequestsPerRollingPeriod() {
+        void unverifiedSeekersReceiveTwoBaseCompanyRequestsPerRollingPeriod() {
                 String suffix = UUID.randomUUID().toString().replace("-", "");
                 String seekerEmail = "budget-seeker-" + suffix + "@example.test";
                 String referrerEmail = "budget-referrer-" + suffix + "@example.test";
@@ -327,7 +440,7 @@ class CompanyReferralRequestFlowTests {
                 insertProfile(referrerId, null);
                 insertReferrer(referrerId, companyId, "budget-work-" + suffix + "@company.test");
 
-                for (int requestNumber = 1; requestNumber <= 5; requestNumber++) {
+                for (int requestNumber = 1; requestNumber <= 2; requestNumber++) {
                         requests.create(authentication(seekerEmail, "Budget Seeker"),
                                         new CreateRequest(companyId, "Role " + requestNumber,
                                                 "https://jobs.example.test/role", "", true, false));
@@ -336,8 +449,41 @@ class CompanyReferralRequestFlowTests {
                 assertEquals(0, budget.allowance(seekerId, Instant.now()).left());
                 ResponseStatusException exception = assertThrows(ResponseStatusException.class,
                                 () -> requests.create(authentication(seekerEmail, "Budget Seeker"),
-                                                new CreateRequest(companyId, "Role 6", "https://jobs.example.test/role", "", true, false)));
+                                                new CreateRequest(companyId, "Role 3", "https://jobs.example.test/role", "", true, false)));
                 assertEquals(HttpStatus.CONFLICT.value(), exception.getStatusCode().value());
+        }
+
+        @Test
+        void verifyingWorkEmailAddsThreeBaseRequestsForTheRollingPeriod() {
+                String suffix = UUID.randomUUID().toString().replace("-", "");
+                String seekerEmail = "verified-budget-seeker-" + suffix + "@example.test";
+                String referrerEmail = "verified-budget-referrer-" + suffix + "@example.test";
+                long seekerId = insertUser("Verified Budget Seeker", seekerEmail);
+                long referrerId = insertUser("Budget Referrer", referrerEmail);
+                long targetCompanyId = insertCompany("target-" + suffix);
+                long verifiedCompanyId = insertCompany("verified-" + suffix);
+                insertProfile(seekerId, null);
+                insertProfile(referrerId, null);
+                insertReferrer(referrerId, targetCompanyId, "target-work-" + suffix + "@company.test");
+
+                for (int requestNumber = 1; requestNumber <= 2; requestNumber++) {
+                        requests.create(authentication(seekerEmail, "Verified Budget Seeker"),
+                                new CreateRequest(targetCompanyId, "Role " + requestNumber,
+                                        "https://jobs.example.test/role", "", true, false));
+                }
+
+                ReferralRequestBudget.Allowance unverifiedAllowance = budget.allowance(seekerId, Instant.now());
+                assertEquals(0, unverifiedAllowance.left());
+                assertEquals(2, unverifiedAllowance.baseMax());
+
+                jdbc.sql("INSERT INTO referrer_profiles (user_id, company_id, work_email, verified_at) "
+                        + "VALUES (?, ?, ?, CURRENT_TIMESTAMP)")
+                        .params(seekerId, verifiedCompanyId, "verified-work-" + suffix + "@company.test").update();
+
+                ReferralRequestBudget.Allowance verifiedAllowance = budget.allowance(seekerId, Instant.now());
+                assertEquals(3, verifiedAllowance.left());
+                assertEquals(5, verifiedAllowance.baseMax());
+                assertEquals(3, verifiedAllowance.baseLeft());
         }
 
             @Test
@@ -468,7 +614,7 @@ class CompanyReferralRequestFlowTests {
 
     @Test
         @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    void dayTenClosureReleasesAssignmentCapacity() {
+        void dayFourClosureReleasesAssignmentCapacity() {
         String suffix = UUID.randomUUID().toString().replace("-", "");
         String referrerEmail = "timeout-referrer-" + suffix + "@example.test";
         String firstSeekerEmail = "timeout-first-" + suffix + "@example.test";
@@ -490,9 +636,9 @@ class CompanyReferralRequestFlowTests {
                     new CreateRequest(companyId, "Second Timeout Role", "https://jobs.example.test/role", "", true, false));
             requests.accept(authentication(referrerEmail, "Timeout Referrer"), first.id(), new AcceptRequest(false, false));
 
-            jdbc.sql("UPDATE referral_request_responses SET accepted_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 11 DAY) WHERE request_id = ?")
+            jdbc.sql("UPDATE referral_request_responses SET accepted_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 5 DAY) WHERE request_id = ?")
                     .param(first.id()).update();
-            assertEquals(1, responses.findStaleAcceptedIds(Instant.now().minus(10, ChronoUnit.DAYS)).size());
+            assertEquals(1, responses.findStaleAcceptedIds(Instant.now().minus(4, ChronoUnit.DAYS)).size());
             scheduler.processDueRequests();
 
             assertEquals("closed", responses.findByRequestIdOrderByCreatedAt(first.id()).getFirst().getStatus());

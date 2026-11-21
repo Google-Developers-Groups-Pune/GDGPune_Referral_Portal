@@ -26,6 +26,7 @@ public final class ReferralRequestDtos {
 
     public record SeekerRequest(long id, String companyName, String roleTitle, String jobUrl, String seekerNote,
             String status, String createdAt, String expiresAt, int pendingCount, int declinedCount,
+            boolean canContinueWithOtherReferrers, int otherReferrerCount, boolean creditReturned,
             List<SeekerResponse> responses) {}
 
     public record ReferrerInboxItem(long responseId, long requestId, String companyName, String roleTitle,

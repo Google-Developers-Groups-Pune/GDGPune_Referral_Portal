@@ -74,6 +74,11 @@ public class CompanyReferralRequestController {
         return referralRequests.cancel(auth, requestId);
     }
 
+    @PostMapping("/referral-requests/{requestId}/continue")
+    public Map<String, Object> continueWithOtherReferrers(Authentication auth, @PathVariable long requestId) {
+        return referralRequests.continueWithOtherReferrers(auth, requestId);
+    }
+
     @PostMapping("/referral-requests/{requestId}/submitted")
     public Map<String, Object> submitted(Authentication auth, @PathVariable long requestId) {
         return referralRequests.markSubmitted(auth, requestId);

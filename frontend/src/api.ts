@@ -59,6 +59,9 @@ export type SeekerReferralRequest = {
   expiresAt: string
   pendingCount: number
   declinedCount: number
+  canContinueWithOtherReferrers: boolean
+  otherReferrerCount: number
+  creditReturned: boolean
   responses: SeekerResponse[]
 }
 

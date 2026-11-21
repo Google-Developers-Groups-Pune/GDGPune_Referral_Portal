@@ -213,7 +213,8 @@ Runs in one DB transaction (`confirmInTransaction`):
 - Returns companies with at least one verified employee who has opted in to referral requests.
   It excludes the seeker's own verified company and does not return employee names or identities.
 - Returns the seeker's wishlist count (maximum **5**) and separate company-referral request
-  allowance fields: base allowance **5 per rolling 30 days** plus available earned credits.
+  allowance fields: **2 base requests per rolling 30 days while unverified, 5 after work-email
+  verification**, plus available earned credits.
 - Marks each company `wishlisted: true/false` based on the caller's own `wishlists` rows.
 
 **Add to wishlist (`PUT /api/wishlist/:companyId`):**
@@ -274,8 +275,10 @@ requests use a separate request/response lifecycle.
 - The seeker confirms the submission for that specific referrer. Confirmation can award that
   referrer one bonus request credit, at most two credits per rolling 30 days. Credits expire
   after 90 days. This referral allowance is separate from the legacy meeting budget.
-- Accepted but unsubmitted assignments trigger up to three work-email reminders, two days
-  apart. They close on day 10 and release the referrer's active-assignment capacity.
+- Accepted but unsubmitted assignments trigger work-email reminders at 24, 48, and 72 hours, then
+  close at 96 hours and release the referrer's active-assignment capacity. If other verified
+  referrers remain, the seeker can continue the request within four days; otherwise, or if the
+  seeker does not continue, the request expires and its credit is returned.
 
 **Tables touched:** `company_referral_requests`, `referral_request_responses`,
 `referral_request_credits`, `referrer_profiles`, `profiles`, `notifications`, `referrals`,
@@ -364,7 +367,7 @@ yet (no stats endpoint, company/sponsor management, report queue, or badge/QR bu
 | Work-email OTP verification, auto company creation from domain | ✅ Implemented |
 | Companies list with opted-in referrer availability, no employee names | ✅ Implemented |
 | Wishlist (max 5, no self-company) | ✅ Implemented |
-| Company referral requests (5 per 30 days, multiple opted-in referrers) | ✅ Implemented |
+| Company referral requests (one active referrer at a time; seeker can continue after timeout) | ✅ Implemented |
 | Referral accept/decline, active assignment capacity, contact consent | ✅ Implemented |
 | Submission confirmation, capped credits, expiry/refund | ✅ Implemented |
 | In-app invitation notifications and capped email reminders | ✅ Implemented |

@@ -19,7 +19,7 @@ Referral Portal is a mobile-first app where job seekers request help from verifi
 
 - A **seeker** creates a profile, browses eligible companies, saves companies, and requests help with a company and role.
 - A **referrer** verifies a work email and then receives referral requests for that company.
-- A **referral request** is sent to verified referrers at one company; multiple employees may accept.
+- A **referral request** is sent to verified referrers at one company; only one employee can accept at a time. If that assignment times out, the seeker can continue with another invited referrer.
 - A **referral** is a tracked internal handoff. The portal does not submit a candidate to a company's hiring system.
 
 The MVP supports the referral handoff between job seekers and verified employees. It is not a job board or recruitment platform, and it does not submit candidates into employers' hiring systems.
@@ -33,10 +33,10 @@ The MVP supports the referral handoff between job seekers and verified employees
 | Work-email verification | IN MVP | Six-digit emailed code; unlocks referrer settings. It is not required to sign in or save a seeker profile. |
 | Company directory | IN MVP | Companies with at least one verified referrer; employee identities are not listed. |
 | Wishlist | IN MVP | A seeker can save up to five companies. |
-| Company referral requests | IN MVP | A seeker requests one company/role; every verified referrer is invited, and several can accept. |
+| Company referral requests | IN MVP | A seeker requests one company/role with a required HTTPS job link; every verified referrer is invited, but only one can accept at a time. The seeker can continue with another if the assignment times out. |
 | Referral submission tracking | IN MVP | Referrers mark internal submission; seekers confirm. The app does not submit to the employer's system. |
-| Referral request credits | IN MVP | Five base requests per rolling 30 days; capped earned credits can raise the allowance. |
-| Referral reminders | IN MVP | Accepted referrers receive up to three email reminders at two-day intervals. |
+| Referral request credits | IN MVP | Two base requests per rolling 30 days before work-email verification; five after verification. Capped earned credits can raise the allowance. |
+| Referral reminders | IN MVP | Accepted referrers receive daily reminders for three days; an unsubmitted assignment times out after 96 hours. |
 | Light/dark theme | IN MVP | Theme choice persists in the current browser. |
 | Legacy meeting/chat APIs | RETAINED, HIDDEN IN UI | Tables, endpoints, and old data remain for possible future use; the frontend no longer starts meetings or chats. |
 | QR badge | IN MVP | Contains a random token, not the user's database ID. |
@@ -148,10 +148,10 @@ The wishlist's composite key (`seeker_id`, `company_id`) prevents duplicate save
 1. Any seeker with a profile selects a company and free-form role title, provides an HTTPS job URL, and may add a note. Work-email verification is not required to seek a referral.
 2. The seeker explicitly consents to sharing a profile summary. Their sign-in email is shared only with employees who accept; sharing an optional phone remains a separate choice.
 3. The backend validates the company, excludes the seeker's own verified company, enforces duplicate-request and rolling allowance rules, then creates one `company_referral_requests` row and one pending `referral_request_responses` row for every verified referrer at that company.
-4. Invitees receive an in-app inbox item and a work-email notification. Role preferences do not filter invitations. Multiple employees may accept; each acceptance independently uses active-assignment capacity and collects its contact-sharing choices.
+4. Invitees receive an in-app inbox item and a work-email notification. Role preferences do not filter invitations. The first employee to accept locks the request; other invitees see that someone else accepted. If the assignment times out, the seeker can reopen the request to remaining verified referrers.
 5. An accepted referrer uses the employer's internal process and marks the referral submitted. The app creates a `referrals` row but does not submit anything into the employer's internal portal.
 6. The seeker confirms that submission. The referrer may earn one bonus request credit, capped at two credits per rolling 30 days; credits expire after 90 days.
-7. Requests with no acceptance expire after four days and refund the request allowance. Accepted assignments receive up to three reminders at two-day intervals and close after day 10 if still unsubmitted.
+7. Requests with no acceptance expire after four days and refund the request allowance. Accepted assignments receive reminders at 24, 48, and 72 hours and time out at 96 hours. The seeker then has four days to continue with remaining referrers; otherwise the request expires and its allowance is refunded.
 
 **Tables:** `company_referral_requests`, `referral_request_responses`, `referral_request_credits`, `referrals`, `notifications`, `profiles`, `referrer_profiles`, `companies`, and `users`.
 

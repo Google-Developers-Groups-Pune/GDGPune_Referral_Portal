@@ -208,8 +208,89 @@ public class CompanyReferralRequestService {
         response.setShareReferrerEmail(Boolean.TRUE.equals(input.shareReferrerEmail()));
         response.setShareReferrerPhone(Boolean.TRUE.equals(input.shareReferrerPhone()));
         responses.save(response);
+        for (ReferralRequestResponse other : responses.findByRequestIdOrderByCreatedAt(requestId)) {
+            if (!other.getId().equals(response.getId()) && "pending".equals(other.getStatus())) {
+                other.setStatus("accepted_elsewhere");
+                other.setClosedAt(now);
+                responses.save(other);
+            }
+        }
         notifications.accepted(request, response);
         return Map.of("responseId", response.getId(), "status", response.getStatus());
+    }
+
+    @Transactional
+    public Map<String, Object> continueWithOtherReferrers(Authentication authentication, long requestId) {
+        long seekerId = users.current(authentication).id();
+        Instant now = Instant.now();
+        CompanyReferralRequest request = requests.findByIdForUpdate(requestId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Referral request not found."));
+        if (!request.getSeeker().getId().equals(seekerId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+        }
+        List<ReferralRequestResponse> existing = responses.findByRequestIdOrderByCreatedAt(requestId);
+        boolean assignedReferrerTimedOut = existing.stream().anyMatch(response ->
+                "closed".equals(response.getStatus()) && response.getAcceptedAt() != null
+                        && response.getSubmittedAt() == null);
+        if (!"closed".equals(request.getStatus()) || !assignedReferrerTimedOut) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "There is no timed-out referral assignment to continue.");
+        }
+
+        int reopened = 0;
+        for (ReferrerProfile profile : referrerProfiles
+                .findByCompany_IdAndVerifiedAtIsNotNullAndReferrerTrue(request.getCompany().getId())) {
+            if (profile.getUserId().equals(seekerId)) {
+                continue;
+            }
+            ReferralRequestResponse response = existing.stream()
+                    .filter(item -> item.getReferrer().getId().equals(profile.getUserId()))
+                    .findFirst().orElse(null);
+            if (response != null && !Set.of("accepted_elsewhere", "pending").contains(response.getStatus())) {
+                continue;
+            }
+            if (response == null) {
+                response = new ReferralRequestResponse();
+                response.setRequest(request);
+                response.setReferrer(profile.getUser());
+                response.setCreatedAt(now);
+            } else {
+                response.setStatus("pending");
+                response.setClosedAt(null);
+                response.setRemindersSent((short) 0);
+                response.setLastRemindedAt(null);
+            }
+            response = responses.save(response);
+            notifications.invite(request, response.getReferrer());
+            reopened++;
+        }
+
+        if (reopened == 0) {
+            expireAndRefund(request, existing, now);
+            return Map.of("status", request.getStatus(), "creditReturned", true);
+        }
+
+        request.setStatus("open");
+        request.setClosedAt(null);
+        request.setExpiresAt(now.plus(REQUEST_DAYS, ChronoUnit.DAYS));
+        requests.save(request);
+        return Map.of("status", request.getStatus(), "referrersNotified", reopened);
+    }
+
+    private void expireAndRefund(CompanyReferralRequest request, List<ReferralRequestResponse> requestResponses,
+            Instant now) {
+        request.setStatus("expired");
+        request.setClosedAt(now);
+        requests.save(request);
+        for (ReferralRequestResponse response : requestResponses) {
+            if ("accepted_elsewhere".equals(response.getStatus()) || "pending".equals(response.getStatus())) {
+                response.setStatus("expired");
+                response.setClosedAt(now);
+                responses.save(response);
+            }
+        }
+        budget.refundCreditIfUsed(request);
+        notifications.expired(request);
     }
 
     @Transactional
@@ -353,16 +434,24 @@ public class CompanyReferralRequestService {
                 }).toList();
         int pending = (int) all.stream().filter(response -> "pending".equals(response.getStatus())).count();
         int declined = (int) all.stream().filter(response -> "declined".equals(response.getStatus())).count();
-        int acceptedCount = (int) all.stream().filter(response -> response.getAcceptedAt() != null).count();
+        int acceptedCount = (int) all.stream().filter(response -> Set.of("accepted", "submitted", "confirmed")
+            .contains(response.getStatus())).count();
+        int otherReferrers = (int) all.stream().filter(response ->
+            "accepted_elsewhere".equals(response.getStatus()) || "pending".equals(response.getStatus())).count();
+        boolean timedOutAssignment = all.stream().anyMatch(response -> "closed".equals(response.getStatus())
+            && response.getAcceptedAt() != null && response.getSubmittedAt() == null);
+        boolean canContinue = "closed".equals(request.getStatus()) && timedOutAssignment && otherReferrers > 0;
         String status = request.getStatus();
-        if ("open".equals(status) && acceptedCount > 0) {
+        if (canContinue) {
+            status = "awaiting_seeker";
+        } else if ("open".equals(status) && acceptedCount > 0) {
             status = "in_progress";
         } else if ("open".equals(status) && pending == 0 && declined > 0) {
             status = "no_acceptances";
         }
         return new SeekerRequest(request.getId(), request.getCompany().getName(), request.getRoleTitle(), request.getJobUrl(),
                 request.getSeekerNote(), status, time(request.getCreatedAt()), time(request.getExpiresAt()),
-                pending, declined, accepted);
+            pending, declined, canContinue, otherReferrers, "expired".equals(request.getStatus()), accepted);
     }
 
     private ReferrerInboxItem inboxItem(ReferralRequestResponse response, boolean hasResumeSnapshot) {
