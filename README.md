@@ -122,6 +122,125 @@ npm --prefix frontend run lint
 npm --prefix frontend run build
 ```
 
+## GCP Cloud Run preparation
+
+Render and Aiven remain the development environment. The opt-in `cloudrun` Spring
+profile uses the Cloud SQL Java Connector; without this profile, the existing
+`DB_URL` configuration and local/Render behavior are unchanged. The Dockerfile
+packages the React frontend and backend into one service. Docker build context
+rules exclude dotenv files, including nested frontend files; never bake credentials
+or a development API origin into a production image.
+
+The initial GCP target is:
+
+| Resource | Value |
+| --- | --- |
+| Project | `referral-portal-production` |
+| Region | `asia-south1` (Mumbai) |
+| Artifact Registry repository | `referral-portal` |
+| Cloud SQL connection name | `referral-portal-production:asia-south1:referral-portal-prod-db` |
+| Database | `referral_portal` |
+| Database user | `referral_app` |
+| Runtime service account | `referral-portal-runtime@referral-portal-production.iam.gserviceaccount.com` |
+| Password secret | `referral-db-password` |
+
+Set these on Cloud Run, not in the development `.env`:
+
+| Environment variable | Value |
+| --- | --- |
+| `SPRING_PROFILES_ACTIVE` | `cloudrun` |
+| `CLOUD_SQL_INSTANCE` | The Cloud SQL connection name above |
+| `DB_NAME` | `referral_portal` |
+| `DB_USERNAME` | `referral_app` |
+| `DB_PASSWORD` | Secret reference to `referral-db-password`, version `1`; never a literal in a deploy command |
+| `APP_FRONTEND_URL` | The service's canonical HTTPS origin, without a trailing slash; update it if the production domain changes |
+
+Assign the runtime service account to the Cloud Run revision. It needs Cloud SQL
+Client on the project and Secret Manager Secret Accessor on this specific secret.
+The Java Connector uses the attached identity's Application Default Credentials
+and encrypts traffic to the database's public IP; no service-account JSON key,
+authorized network, VPC connector, separate proxy process, or Cloud Run Cloud SQL
+socket attachment is needed for this connection method. Do not copy the Cloud
+Shell `--get-server-public-key` option into the JDBC configuration. The profile
+uses lazy certificate refresh for request-based CPU allocation, up to five database
+connections per instance, and secure session cookies. It deliberately overrides
+`DB_URL` and requires an explicit frontend origin for OAuth redirects and email links;
+production serves the SPA on the same origin.
+
+### First deployment is a private smoke test, not a user launch
+
+- The initial smoke test required Cloud Run IAM authentication. The web service
+  was subsequently made public by user request for testing and the demo; the
+  maintenance job remains private. Do not invite volunteers before the gates below.
+- Start with request-based billing, minimum instances `0`, maximum instances `1`,
+  concurrency `20`, one vCPU, and `1 GiB` memory. Measure startup/memory before
+  increasing capacity. A single-instance maximum does not make sessions durable
+  or guarantee no overlapping instances during deployments.
+- Configure the startup probe for `/actuator/health` with enough startup time for
+  Spring Boot and Flyway. The first successful startup applies migrations to the
+  production database; it must not point at Aiven or contain development data.
+- Verify startup logs, authenticated access to `/actuator/health`, migration
+  history, and the SPA using an authenticated Cloud Run proxy before exposing it.
+- The production Cloud SQL connection, image build, OAuth, and real load must be
+  verified in GCP; local configuration tests alone do not prove deployment readiness.
+
+### Gates before real users
+
+See [the production follow-up list](docs/PRODUCTION-FOLLOW-UP.md) for postponed
+tasks, their reasons, and remaining verification.
+
+- **Sessions:** The `cloudrun` profile uses Spring Session JDBC with Flyway-managed
+  tables and secure cookies; other profiles retain their existing session behavior.
+  Test real Google and GitHub login across instances and revisions before autoscaling
+  or a user launch. Deploying this change invalidates existing in-memory sessions;
+  serialized session data can also require users to sign in again after upgrades or
+  rollback. Protect database access because sessions include authentication data.
+  Expired-session cleanup is disabled inside the web service and runs in the
+  maintenance job described below.
+- **Maintenance:** `cloudrun` disables the in-process referral-request scheduler.
+  Development retains the existing hourly timer. A separate Cloud Run job using
+  profiles `cloudrun,maintenance` runs expiry, refunds, reminders, stale-assignment
+  closure, and expired-session cleanup once and exits. Trigger it hourly with an
+  authenticated Cloud Scheduler job; do not make a public maintenance endpoint or
+  enable the timer on request-billed, scale-to-zero instances. The job and web
+  service must use compatible images and database migrations.
+  Each request is locked and rechecked before changes. Failed reminder emails roll
+  back their update and are retried on the next run; a retry after an uncertain SMTP
+  result can send a duplicate. Job failures need monitoring and alerts: Scheduler
+  can successfully start a job even if its later execution fails. Both a manual
+  Scheduler trigger and the first regular hourly run started successful executions;
+  failure alerts still need configuration and testing before user launch.
+- **Sign-in and mail:** provision separate production Google/GitHub OAuth and SMTP
+  secrets, grant access on each secret, register the actual HTTPS callbacks
+  `/login/oauth2/code/google` and `/login/oauth2/code/github`, and verify delivery
+  quotas. Placeholder credentials are not working sign-in. Never share secret
+  values in screenshots, chat, source, or deploy-command history.
+- **Operations:** test backup restore, backward-compatible migrations, rollback,
+  database connection usage, and realistic concurrent traffic. Database compute,
+  storage/backups, and other services can consume credit while the app is idle;
+  budget alerts are not a spending cap.
+  The backup restore drill is postponed: use a recent backup and restore to a
+  separate temporary instance, never over the production instance. Verify the
+  restored data and account for temporary instance and retained-backup costs.
+
+### Production maintenance operations
+
+The private Cloud Run service is `referral-portal`; the Cloud Run job is
+`referral-portal-maintenance`. Cloud Scheduler job
+`referral-portal-maintenance-hourly` invokes it hourly at the start of the hour
+in `Asia/Kolkata`, using the dedicated
+`referral-maintenance-invoker@referral-portal-production.iam.gserviceaccount.com`
+identity. Scheduler and task retries are disabled; failed reminders remain due for
+the next hourly run. Manually triggering the Scheduler or job can process real
+production records and send real emails.
+
+When releasing changes, update both the service and maintenance job to compatible,
+tested image versions; normally use the same immutable image digest. Consider
+database migration and rollback compatibility before either update. Check the
+Scheduler invocation **and** the resulting Cloud Run job execution and logs: a
+successful invocation only means the job was started. Configure and test alerts
+for failed Scheduler triggers and failed Cloud Run job executions before launch.
+
 ## Stop services
 
 Stop the frontend and backend with `Ctrl+C`. If you started local MySQL, stop it with:

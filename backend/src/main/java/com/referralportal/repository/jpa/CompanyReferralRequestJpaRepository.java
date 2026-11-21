@@ -19,8 +19,8 @@ public interface CompanyReferralRequestJpaRepository extends JpaRepository<Compa
             + "and r.status <> 'expired' and r.baseCharge = true")
     long countBudgetedBySeekerSince(@Param("seekerId") long seekerId, @Param("since") Instant since);
 
-    @Query("select r from CompanyReferralRequest r where r.status = 'open' and r.expiresAt <= :now")
-    List<CompanyReferralRequest> findExpiredOpenRequests(@Param("now") Instant now);
+    @Query("select r.id from CompanyReferralRequest r where r.status = 'open' and r.expiresAt <= :now order by r.id")
+    List<Long> findExpiredOpenRequestIds(@Param("now") Instant now);
 
         @Query("select r from CompanyReferralRequest r where r.seeker.id = :seekerId and r.company.id = :companyId "
                 + "and lower(r.roleTitle) = lower(:roleTitle) and (r.status = 'open' or exists "

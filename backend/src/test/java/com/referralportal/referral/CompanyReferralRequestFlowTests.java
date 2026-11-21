@@ -202,6 +202,7 @@ class CompanyReferralRequestFlowTests {
 
         jdbc.sql("UPDATE company_referral_requests SET expires_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 1 MINUTE) WHERE id = ?")
                 .param(request.id()).update();
+        entityManager.clear();
         scheduler.processDueRequests();
 
         assertEquals("expired", jdbc.sql("SELECT status FROM company_referral_requests WHERE id = ?")
@@ -386,7 +387,7 @@ class CompanyReferralRequestFlowTests {
 
             jdbc.sql("UPDATE referral_request_responses SET accepted_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 11 DAY) WHERE request_id = ?")
                     .param(first.id()).update();
-            assertEquals(1, responses.findStaleAccepted(Instant.now().minus(10, ChronoUnit.DAYS)).size());
+            assertEquals(1, responses.findStaleAcceptedIds(Instant.now().minus(10, ChronoUnit.DAYS)).size());
             scheduler.processDueRequests();
 
             assertEquals("closed", responses.findByRequestIdOrderByCreatedAt(first.id()).getFirst().getStatus());
