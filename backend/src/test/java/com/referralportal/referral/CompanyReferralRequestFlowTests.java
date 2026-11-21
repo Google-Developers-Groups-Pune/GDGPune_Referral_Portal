@@ -143,6 +143,39 @@ class CompanyReferralRequestFlowTests {
     }
 
     @Test
+    void legacyPendingInviteCannotAcceptWhenAnotherResponseIsAlreadyActive() {
+        String suffix = UUID.randomUUID().toString().replace("-", "");
+        String seekerEmail = "legacy-seeker-" + suffix + "@example.test";
+        String activeReferrerEmail = "legacy-active-" + suffix + "@example.test";
+        String pendingReferrerEmail = "legacy-pending-" + suffix + "@example.test";
+        long activeReferrerId = insertUser("Active Referrer", activeReferrerEmail);
+        long pendingReferrerId = insertUser("Pending Referrer", pendingReferrerEmail);
+        long companyId = insertCompany(suffix);
+        insertUser("Legacy Seeker", seekerEmail);
+        insertProfile(jdbc.sql("SELECT id FROM users WHERE email = ?").param(seekerEmail).query(Long.class).single(), null);
+        insertProfile(activeReferrerId, null);
+        insertProfile(pendingReferrerId, null);
+        insertReferrer(activeReferrerId, companyId, "legacy-active-work-" + suffix + "@company.test");
+        insertReferrer(pendingReferrerId, companyId, "legacy-pending-work-" + suffix + "@company.test");
+
+        SeekerRequest request = requests.create(authentication(seekerEmail, "Legacy Seeker"),
+                new CreateRequest(companyId, "Engineer", "https://jobs.example.test/engineer", "", true, false));
+        requests.accept(authentication(activeReferrerEmail, "Active Referrer"), request.id(), new AcceptRequest(false, false));
+        entityManager.flush();
+        jdbc.sql("UPDATE referral_request_responses SET status = 'pending', closed_at = NULL "
+                + "WHERE request_id = ? AND referrer_id = ?").params(request.id(), pendingReferrerId).update();
+        entityManager.clear();
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> requests.accept(authentication(pendingReferrerEmail, "Pending Referrer"), request.id(),
+                        new AcceptRequest(false, false)));
+
+        assertEquals(HttpStatus.CONFLICT, exception.getStatusCode());
+        assertEquals(1, count("referral_request_responses", "request_id = ? AND status IN ('accepted', 'submitted', 'confirmed')",
+                request.id()));
+    }
+
+    @Test
     void seekerCanContinueWithRemainingReferrersAfterFourDayAssignmentTimeout() {
         String suffix = UUID.randomUUID().toString().replace("-", "");
         String seekerEmail = "continue-seeker-" + suffix + "@example.test";

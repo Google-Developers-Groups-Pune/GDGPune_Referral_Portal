@@ -188,6 +188,13 @@ public class CompanyReferralRequestService {
         if (!"pending".equals(response.getStatus())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "You have already responded to this request.");
         }
+        boolean anotherReferrerActive = responses.findByRequestIdOrderByCreatedAt(requestId).stream()
+            .anyMatch(other -> !other.getId().equals(response.getId())
+                && Set.of("accepted", "submitted", "confirmed").contains(other.getStatus()));
+        if (anotherReferrerActive) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                "Another referrer has already accepted this request.");
+        }
         ReferrerProfile referrer = referrerProfiles.findByUserIdForUpdate(current.id())
                 .filter(profile -> profile.getVerifiedAt() != null && profile.isReferrer()
                 && profile.getCompany().getId().equals(request.getCompany().getId()))
