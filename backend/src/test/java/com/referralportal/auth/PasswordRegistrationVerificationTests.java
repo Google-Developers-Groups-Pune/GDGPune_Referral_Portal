@@ -80,6 +80,31 @@ class PasswordRegistrationVerificationTests {
     }
 
     @Test
+    void wrongPasswordsShareTheFiveAttemptLimit() {
+        String suffix = UUID.randomUUID().toString().replace("-", "");
+        String email = "password-attempts-" + suffix + "@example.test";
+
+        auth.beginRegistration("Password Seeker", email, "correct horse 42", "127.0.0.1");
+
+        SimpleMailMessage message = lastSentEmail();
+        String code = codeFrom(message);
+
+        for (int attempt = 1; attempt <= 4; attempt++) {
+            String wrongPassword = "wrong password " + attempt;
+            ResponseStatusException invalidPassword = assertThrows(ResponseStatusException.class,
+                    () -> auth.verifyRegistration(email, code, wrongPassword));
+            assertThat(invalidPassword.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        }
+
+        ResponseStatusException exhausted = assertThrows(ResponseStatusException.class,
+                () -> auth.verifyRegistration(email, code, "wrong password 5"));
+
+        assertThat(exhausted.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
+        assertThat(users.findByEmail(email)).isEmpty();
+        assertThat(pendingRegistrations.findById(email)).isEmpty();
+    }
+
+    @Test
     void existingOAuthEmailCannotStartPasswordRegistration() {
         String suffix = UUID.randomUUID().toString().replace("-", "");
         String email = "oauth-owner-" + suffix + "@example.test";

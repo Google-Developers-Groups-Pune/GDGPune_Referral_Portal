@@ -30,7 +30,7 @@ public class AuthService {
 
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final int BCRYPT_MAX_PASSWORD_BYTES = 72;
-    private static final int MAX_REGISTRATION_CODE_ATTEMPTS = 5;
+    private static final int MAX_REGISTRATION_ATTEMPTS = 5;
     private static final String INVALID_REGISTRATION = "Invalid or expired verification code. Start registration again or sign in.";
 
     @Autowired
@@ -91,19 +91,9 @@ public class AuthService {
             pendingRegistrations.delete(pending);
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, INVALID_REGISTRATION);
         }
-        if (!passwordEncoder.matches(code, pending.getCodeHash())) {
-            if (pending.getAttempts() + 1 >= MAX_REGISTRATION_CODE_ATTEMPTS) {
-                pendingRegistrations.delete(pending);
-                throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
-                        "Too many incorrect codes. Start registration again.");
-            }
-            pending.setAttempts((short) (pending.getAttempts() + 1));
-            pendingRegistrations.save(pending);
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, INVALID_REGISTRATION);
-        }
-        if (!passwordEncoder.matches(rawPassword, pending.getPasswordHash())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
-                    "The password does not match this registration. Use the password you entered when requesting the code.");
+        if (!passwordEncoder.matches(code, pending.getCodeHash())
+                || !passwordEncoder.matches(rawPassword, pending.getPasswordHash())) {
+            rejectFailedAttempt(pending);
         }
         TransactionTemplate accountTransaction = new TransactionTemplate(transactionManager);
         accountTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -124,6 +114,17 @@ public class AuthService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "Password must be no more than 72 UTF-8 bytes.");
         }
+    }
+
+    private void rejectFailedAttempt(PendingPasswordRegistration pending) {
+        if (pending.getAttempts() + 1 >= MAX_REGISTRATION_ATTEMPTS) {
+            pendingRegistrations.delete(pending);
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                    "Too many incorrect attempts. Start registration again.");
+        }
+        pending.setAttempts((short) (pending.getAttempts() + 1));
+        pendingRegistrations.save(pending);
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, INVALID_REGISTRATION);
     }
 
     private static ResponseStatusException emailTaken() {
