@@ -1,7 +1,29 @@
-import { apiOrigin } from '../api'
-import { Logo } from '../ui'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
+import { api, apiOrigin } from '../api'
+import { Button, ErrorNote, Logo } from '../ui'
 
 export default function SignIn({ loginError }: { loginError: boolean }) {
+  const qc = useQueryClient()
+  const [mode, setMode] = useState<'login' | 'register'>('login')
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+
+  useEffect(() => {
+    void api<void>('/api/auth/csrf').catch(() => undefined)
+  }, [])
+
+  const authenticate = useMutation({
+    mutationFn: () => api<void>(mode === 'register' ? '/api/auth/register' : '/api/auth/login', {
+      method: 'POST',
+      body: mode === 'register' ? { name, email, password } : { email, password },
+    }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['me'] })
+      window.location.assign('/')
+    },
+  })
   return (
     <main className="mx-auto flex min-h-screen max-w-[430px] flex-col justify-center px-6 py-10">
       <div className="rise">
@@ -25,7 +47,62 @@ export default function SignIn({ loginError }: { loginError: boolean }) {
           </p>
         )}
 
-        <div className="mt-8 space-y-3">
+        <div className="mt-8 grid grid-cols-2 gap-1 rounded-2xl border border-line bg-page p-1" role="tablist" aria-label="Sign-in method">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === 'login'}
+            onClick={() => setMode('login')}
+            className={`min-h-11 rounded-xl text-sm font-semibold ${mode === 'login' ? 'bg-white text-gblue shadow-sm' : 'text-muted'}`}
+          >
+            Sign in
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={mode === 'register'}
+            onClick={() => setMode('register')}
+            className={`min-h-11 rounded-xl text-sm font-semibold ${mode === 'register' ? 'bg-white text-gblue shadow-sm' : 'text-muted'}`}
+          >
+            Register
+          </button>
+        </div>
+
+        <form
+          className="mt-4 space-y-3"
+          onSubmit={(event) => {
+            event.preventDefault()
+            authenticate.mutate()
+          }}
+        >
+          {mode === 'register' && (
+            <div>
+              <label className="text-sm font-semibold" htmlFor="auth-name">Name</label>
+              <input id="auth-name" required maxLength={120} value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" className="mt-1 w-full rounded-xl border border-line bg-white px-3 py-2.5 text-sm outline-none focus:border-gblue" />
+            </div>
+          )}
+          <div>
+            <label className="text-sm font-semibold" htmlFor="auth-email">Email</label>
+            <input id="auth-email" type="email" required maxLength={190} value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" className="mt-1 w-full rounded-xl border border-line bg-white px-3 py-2.5 text-sm outline-none focus:border-gblue" />
+          </div>
+          <div>
+            <label className="text-sm font-semibold" htmlFor="auth-password">Password</label>
+            <input id="auth-password" type="password" required minLength={8} maxLength={100} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === 'register' ? 'new-password' : 'current-password'} className="mt-1 w-full rounded-xl border border-line bg-white px-3 py-2.5 text-sm outline-none focus:border-gblue" />
+            <p className="mt-1 text-xs text-muted">At least 8 characters; passwords must stay within 72 UTF-8 bytes.</p>
+          </div>
+          <ErrorNote message={authenticate.error?.message ?? null} />
+          <Button type="submit" disabled={authenticate.isPending || (mode === 'register' && name.trim().length === 0)} className="w-full">
+            {authenticate.isPending ? (mode === 'register' ? 'Creating account…' : 'Signing in…') : (mode === 'register' ? 'Create account' : 'Sign in')}
+          </Button>
+        </form>
+
+        <div className="my-5 flex items-center gap-3 text-xs text-muted">
+          <div className="h-px flex-1 bg-line" />
+          <span>or continue with</span>
+          <div className="h-px flex-1 bg-line" />
+        </div>
+
+        <div className="space-y-3">
           <a
             href={`${apiOrigin}/oauth2/authorization/google`}
             className="flex items-center justify-center gap-3 rounded-full border border-line bg-white py-3.5 font-semibold shadow-sm transition hover:shadow-md"

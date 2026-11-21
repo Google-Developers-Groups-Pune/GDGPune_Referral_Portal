@@ -2,6 +2,7 @@ package com.referralportal.service;
 
 import com.referralportal.repository.UserRepository;
 import com.referralportal.repository.jpa.UserJpaRepository;
+import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
 import java.util.HexFormat;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -17,6 +18,7 @@ import org.springframework.web.server.ResponseStatusException;
 public class AuthService {
 
     private static final SecureRandom RANDOM = new SecureRandom();
+    private static final int BCRYPT_MAX_PASSWORD_BYTES = 72;
 
     @Autowired
     private UserRepository users;
@@ -27,6 +29,10 @@ public class AuthService {
 
     @Transactional
     public void register(String name, String email, String rawPassword) {
+        if (rawPassword.getBytes(StandardCharsets.UTF_8).length > BCRYPT_MAX_PASSWORD_BYTES) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Password must be no more than 72 UTF-8 bytes.");
+        }
         String normalizedEmail = email.trim().toLowerCase();
         if (userJpa.findByEmail(normalizedEmail).isPresent()) {
             throw emailTaken();
