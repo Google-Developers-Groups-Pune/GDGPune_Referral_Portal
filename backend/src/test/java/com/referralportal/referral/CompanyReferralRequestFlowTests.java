@@ -148,18 +148,22 @@ class CompanyReferralRequestFlowTests {
         String seekerEmail = "continue-seeker-" + suffix + "@example.test";
         String firstEmail = "continue-first-" + suffix + "@example.test";
         String secondEmail = "continue-second-" + suffix + "@example.test";
+        String thirdEmail = "continue-third-" + suffix + "@example.test";
         long seekerId = insertUser("Continue Seeker", seekerEmail);
         long firstReferrerId = insertUser("First Referrer", firstEmail);
         long secondReferrerId = insertUser("Second Referrer", secondEmail);
+        long thirdReferrerId = insertUser("Third Referrer", thirdEmail);
         long companyId = insertCompany(suffix);
         insertProfile(seekerId, null);
         insertProfile(firstReferrerId, null);
         insertProfile(secondReferrerId, null);
+        insertProfile(thirdReferrerId, null);
         insertReferrer(firstReferrerId, companyId, "continue-first-work-" + suffix + "@company.test");
         insertReferrer(secondReferrerId, companyId, "continue-second-work-" + suffix + "@company.test");
 
         SeekerRequest request = requests.create(authentication(seekerEmail, "Continue Seeker"),
                 new CreateRequest(companyId, "Engineer", "https://jobs.example.test/engineer", "", true, false));
+        insertReferrer(thirdReferrerId, companyId, "continue-third-work-" + suffix + "@company.test");
         requests.accept(authentication(firstEmail, "First Referrer"), request.id(), new AcceptRequest(false, false));
         entityManager.flush();
         jdbc.sql("UPDATE referral_request_responses SET accepted_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 5 DAY) "
@@ -177,6 +181,8 @@ class CompanyReferralRequestFlowTests {
 
         requests.continueWithOtherReferrers(authentication(seekerEmail, "Continue Seeker"), request.id());
         assertEquals("pending", inboxItem(requests.inbox(authentication(secondEmail, "Second Referrer"))).status());
+        assertTrue(requests.inbox(authentication(thirdEmail, "Third Referrer")).stream()
+                .noneMatch(item -> item.requestId() == request.id()));
         requests.accept(authentication(secondEmail, "Second Referrer"), request.id(), new AcceptRequest(false, false));
         assertEquals("accepted", responses.findByRequestIdAndReferrerId(request.id(), secondReferrerId).orElseThrow().getStatus());
     }
@@ -244,12 +250,91 @@ class CompanyReferralRequestFlowTests {
         jdbc.sql("UPDATE company_referral_requests SET closed_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 5 DAY) "
                 + "WHERE id = ?").param(request.id()).update();
         entityManager.clear();
+        ResponseStatusException lateContinue = assertThrows(ResponseStatusException.class,
+                () -> requests.continueWithOtherReferrers(authentication(seekerEmail, "Decision Seeker"), request.id()));
+        assertEquals(HttpStatus.CONFLICT, lateContinue.getStatusCode());
         scheduler.processDueRequests();
 
         SeekerRequest expired = requests.seekerRequests(authentication(seekerEmail, "Decision Seeker")).getFirst();
         assertEquals("expired", expired.status());
         assertTrue(expired.creditReturned());
         assertEquals(2, budget.allowance(seekerId, Instant.now()).left());
+    }
+
+    @Test
+    void expiresUnacceptedContinuationAndRefundsDespiteHistoricalAcceptance() {
+        String suffix = UUID.randomUUID().toString().replace("-", "");
+        String seekerEmail = "continuation-refund-seeker-" + suffix + "@example.test";
+        String firstEmail = "continuation-refund-first-" + suffix + "@example.test";
+        String secondEmail = "continuation-refund-second-" + suffix + "@example.test";
+        long seekerId = insertUser("Continuation Refund Seeker", seekerEmail);
+        long firstReferrerId = insertUser("First Referrer", firstEmail);
+        long secondReferrerId = insertUser("Second Referrer", secondEmail);
+        long companyId = insertCompany(suffix);
+        insertProfile(seekerId, null);
+        insertProfile(firstReferrerId, null);
+        insertProfile(secondReferrerId, null);
+        insertReferrer(firstReferrerId, companyId, "continuation-first-work-" + suffix + "@company.test");
+        insertReferrer(secondReferrerId, companyId, "continuation-second-work-" + suffix + "@company.test");
+
+        SeekerRequest request = requests.create(authentication(seekerEmail, "Continuation Refund Seeker"),
+                new CreateRequest(companyId, "Engineer", "https://jobs.example.test/engineer", "", true, false));
+        requests.accept(authentication(firstEmail, "First Referrer"), request.id(), new AcceptRequest(false, false));
+        entityManager.flush();
+        jdbc.sql("UPDATE referral_request_responses SET accepted_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 5 DAY) "
+                + "WHERE request_id = ? AND referrer_id = ?").params(request.id(), firstReferrerId).update();
+        jdbc.sql("UPDATE company_referral_requests SET expires_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 1 MINUTE) "
+                + "WHERE id = ?").param(request.id()).update();
+        entityManager.clear();
+
+        scheduler.processDueRequests();
+        requests.continueWithOtherReferrers(authentication(seekerEmail, "Continuation Refund Seeker"), request.id());
+        entityManager.flush();
+
+        jdbc.sql("UPDATE company_referral_requests SET expires_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 1 MINUTE) "
+                + "WHERE id = ?").param(request.id()).update();
+        entityManager.clear();
+        scheduler.processDueRequests();
+
+        SeekerRequest expired = requests.seekerRequests(authentication(seekerEmail, "Continuation Refund Seeker")).getFirst();
+        assertEquals("expired", expired.status());
+        assertTrue(expired.creditReturned());
+        assertEquals(2, budget.allowance(seekerId, Instant.now()).left());
+    }
+
+    @Test
+    void historicalMultipleAcceptanceDoesNotRefundWhileAnotherAssignmentIsActive() {
+        String suffix = UUID.randomUUID().toString().replace("-", "");
+        String seekerEmail = "legacy-active-seeker-" + suffix + "@example.test";
+        String firstEmail = "legacy-active-first-" + suffix + "@example.test";
+        String secondEmail = "legacy-active-second-" + suffix + "@example.test";
+        long seekerId = insertUser("Legacy Active Seeker", seekerEmail);
+        long firstReferrerId = insertUser("First Referrer", firstEmail);
+        long secondReferrerId = insertUser("Second Referrer", secondEmail);
+        long companyId = insertCompany(suffix);
+        insertProfile(seekerId, null);
+        insertProfile(firstReferrerId, null);
+        insertProfile(secondReferrerId, null);
+        insertReferrer(firstReferrerId, companyId, "legacy-first-work-" + suffix + "@company.test");
+        insertReferrer(secondReferrerId, companyId, "legacy-second-work-" + suffix + "@company.test");
+
+        SeekerRequest request = requests.create(authentication(seekerEmail, "Legacy Active Seeker"),
+                new CreateRequest(companyId, "Engineer", "https://jobs.example.test/engineer", "", true, false));
+        requests.accept(authentication(firstEmail, "First Referrer"), request.id(), new AcceptRequest(false, false));
+        entityManager.flush();
+        jdbc.sql("UPDATE referral_request_responses SET status = 'accepted', accepted_at = CURRENT_TIMESTAMP "
+                + "WHERE request_id = ? AND referrer_id = ?").params(request.id(), secondReferrerId).update();
+        jdbc.sql("UPDATE referral_request_responses SET accepted_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 5 DAY) "
+                + "WHERE request_id = ? AND referrer_id = ?").params(request.id(), firstReferrerId).update();
+        jdbc.sql("UPDATE company_referral_requests SET expires_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 1 MINUTE) "
+                + "WHERE id = ?").param(request.id()).update();
+        entityManager.clear();
+
+        scheduler.processDueRequests();
+
+        assertEquals("accepted", responses.findByRequestIdAndReferrerId(request.id(), secondReferrerId)
+                .orElseThrow().getStatus());
+        assertEquals(1, budget.allowance(seekerId, Instant.now()).left());
     }
 
         @Test

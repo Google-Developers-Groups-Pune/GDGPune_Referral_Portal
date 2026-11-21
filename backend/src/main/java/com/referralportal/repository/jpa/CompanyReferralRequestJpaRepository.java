@@ -26,7 +26,9 @@ public interface CompanyReferralRequestJpaRepository extends JpaRepository<Compa
             + "and exists (select assigned.id from ReferralRequestResponse assigned where assigned.request = r "
             + "and assigned.status = 'closed' and assigned.acceptedAt is not null and assigned.submittedAt is null) "
             + "and exists (select other.id from ReferralRequestResponse other where other.request = r "
-            + "and other.status = 'accepted_elsewhere') order by r.id")
+                + "and other.status in ('accepted_elsewhere', 'pending')) "
+                + "and not exists (select active.id from ReferralRequestResponse active where active.request = r "
+                + "and active.status in ('accepted', 'submitted', 'confirmed')) order by r.id")
         List<Long> findContinuationRequestsDueForExpiry(@Param("decisionBefore") Instant decisionBefore);
 
         @Query("select r from CompanyReferralRequest r where r.seeker.id = :seekerId and r.company.id = :companyId "

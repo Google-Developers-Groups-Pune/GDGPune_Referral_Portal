@@ -82,7 +82,8 @@ public class ReferralRequestMaintenance {
             return;
         }
         List<ReferralRequestResponse> requestResponses = responses.findByRequestIdOrderByCreatedAt(request.getId());
-        boolean hasAccepted = requestResponses.stream().anyMatch(response -> response.getAcceptedAt() != null);
+        boolean hasAccepted = requestResponses.stream().anyMatch(response ->
+            java.util.Set.of("accepted", "submitted", "confirmed").contains(response.getStatus()));
         request.setStatus(hasAccepted ? "closed" : "expired");
         request.setClosedAt(now);
         for (ReferralRequestResponse response : requestResponses) {
@@ -118,11 +119,13 @@ public class ReferralRequestMaintenance {
         request.setClosedAt(now);
         List<ReferralRequestResponse> requestResponses = responses.findByRequestIdOrderByCreatedAt(request.getId());
         boolean hasOtherReferrers = requestResponses.stream().anyMatch(other -> !other.getId().equals(response.getId())
-                && ("accepted_elsewhere".equals(other.getStatus()) || "pending".equals(other.getStatus())));
-        request.setStatus(hasOtherReferrers ? "closed" : "expired");
+            && ("accepted_elsewhere".equals(other.getStatus()) || "pending".equals(other.getStatus())));
+        boolean anotherAssignmentActive = requestResponses.stream().anyMatch(other -> !other.getId().equals(response.getId())
+            && java.util.Set.of("accepted", "submitted", "confirmed").contains(other.getStatus()));
+        request.setStatus(hasOtherReferrers || anotherAssignmentActive ? "closed" : "expired");
         requests.save(request);
         notifications.closed(response);
-        if (!hasOtherReferrers) {
+        if (!hasOtherReferrers && !anotherAssignmentActive) {
             expireAndRefund(request, requestResponses, now);
         }
     }
@@ -140,7 +143,9 @@ public class ReferralRequestMaintenance {
                             && response.getSubmittedAt() == null);
             boolean hasOtherReferrers = requestResponses.stream().anyMatch(response ->
                     "accepted_elsewhere".equals(response.getStatus()) || "pending".equals(response.getStatus()));
-            if (timedOutAssignment && hasOtherReferrers) {
+                boolean anotherAssignmentActive = requestResponses.stream().anyMatch(response ->
+                    java.util.Set.of("accepted", "submitted", "confirmed").contains(response.getStatus()));
+                if (timedOutAssignment && hasOtherReferrers && !anotherAssignmentActive) {
                 expireAndRefund(request, requestResponses, now);
             }
         });

@@ -232,9 +232,14 @@ public class CompanyReferralRequestService {
         boolean assignedReferrerTimedOut = existing.stream().anyMatch(response ->
                 "closed".equals(response.getStatus()) && response.getAcceptedAt() != null
                         && response.getSubmittedAt() == null);
-        if (!"closed".equals(request.getStatus()) || !assignedReferrerTimedOut) {
+        boolean anotherAssignmentActive = existing.stream().anyMatch(response ->
+            Set.of("accepted", "submitted", "confirmed").contains(response.getStatus()));
+        Instant decisionDeadline = request.getClosedAt() == null ? Instant.MIN
+            : request.getClosedAt().plus(REQUEST_DAYS, ChronoUnit.DAYS);
+        if (!"closed".equals(request.getStatus()) || !assignedReferrerTimedOut || anotherAssignmentActive
+            || !now.isBefore(decisionDeadline)) {
             throw new ResponseStatusException(HttpStatus.CONFLICT,
-                    "There is no timed-out referral assignment to continue.");
+                "There is no active continuation window for this referral request.");
         }
 
         int reopened = 0;
@@ -246,20 +251,13 @@ public class CompanyReferralRequestService {
             ReferralRequestResponse response = existing.stream()
                     .filter(item -> item.getReferrer().getId().equals(profile.getUserId()))
                     .findFirst().orElse(null);
-            if (response != null && !Set.of("accepted_elsewhere", "pending").contains(response.getStatus())) {
+            if (response == null || !Set.of("accepted_elsewhere", "pending").contains(response.getStatus())) {
                 continue;
             }
-            if (response == null) {
-                response = new ReferralRequestResponse();
-                response.setRequest(request);
-                response.setReferrer(profile.getUser());
-                response.setCreatedAt(now);
-            } else {
-                response.setStatus("pending");
-                response.setClosedAt(null);
-                response.setRemindersSent((short) 0);
-                response.setLastRemindedAt(null);
-            }
+            response.setStatus("pending");
+            response.setClosedAt(null);
+            response.setRemindersSent((short) 0);
+            response.setLastRemindedAt(null);
             response = responses.save(response);
             notifications.invite(request, response.getReferrer());
             reopened++;
@@ -440,7 +438,11 @@ public class CompanyReferralRequestService {
             "accepted_elsewhere".equals(response.getStatus()) || "pending".equals(response.getStatus())).count();
         boolean timedOutAssignment = all.stream().anyMatch(response -> "closed".equals(response.getStatus())
             && response.getAcceptedAt() != null && response.getSubmittedAt() == null);
-        boolean canContinue = "closed".equals(request.getStatus()) && timedOutAssignment && otherReferrers > 0;
+        boolean anotherAssignmentActive = all.stream().anyMatch(response ->
+            Set.of("accepted", "submitted", "confirmed").contains(response.getStatus()));
+        boolean canContinue = "closed".equals(request.getStatus()) && timedOutAssignment
+            && !anotherAssignmentActive && otherReferrers > 0 && request.getClosedAt() != null
+            && Instant.now().isBefore(request.getClosedAt().plus(REQUEST_DAYS, ChronoUnit.DAYS));
         String status = request.getStatus();
         if (canContinue) {
             status = "awaiting_seeker";
