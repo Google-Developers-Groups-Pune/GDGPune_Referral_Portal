@@ -145,7 +145,7 @@ The wishlist's composite key (`seeker_id`, `company_id`) prevents duplicate save
 
 ### E. Request a company referral
 
-1. Any seeker with a profile selects a company and free-form role title; an HTTPS job URL and note are optional. Work-email verification is not required to seek a referral.
+1. Any seeker with a profile selects a company and free-form role title, provides an HTTPS job URL, and may add a note. Work-email verification is not required to seek a referral.
 2. The seeker explicitly consents to sharing a profile summary. Their sign-in email is shared only with employees who accept; sharing an optional phone remains a separate choice.
 3. The backend validates the company, excludes the seeker's own verified company, enforces duplicate-request and rolling allowance rules, then creates one `company_referral_requests` row and one pending `referral_request_responses` row for every verified referrer at that company.
 4. Invitees receive an in-app inbox item and a work-email notification. Role preferences do not filter invitations. Multiple employees may accept; each acceptance independently uses active-assignment capacity and collects its contact-sharing choices.

@@ -115,17 +115,15 @@ Spring Security OAuth2 login → [UserService.java](/d:/GDG/Referral-Portal/back
   - `githubUrl`, `linkedinUrl`, `portfolioUrl`, and optional `phoneNumber`
    - `hideFromMyCompany` (boolean)
    - `seeker` defaults to `true` at row creation
-4.  Resume upload is implemented for the signed-in seeker. The Profile page uploads a PDF up to
-    5 MB, with metadata and download/delete controls. Resume bytes are stored in `resume_files`;
-  each referral request snapshots the uploaded file in `referral_request_resumes`. Snapshots are
-  removed 30 days after the request is closed or expires. Production object storage may replace
-  the database blobs in a later deployment.
+4.  Resume upload is not implemented. The `resume_files` table and `ResumeFile` entity define
+    storage for PDF bytes, but there is no upload endpoint, service/repository flow, or upload
+    control in the profile UI.
 5. `GET /api/me/profile` reads the row back for the edit form; if no row exists yet,
    `ProfileView.exists()` is `false` and the UI shows the "Save and continue" (create) label
    instead of "Save changes".
 
-**Tables touched:** `profiles` (insert/update). Resume upload writes `resume_files`; referral
-request creation writes `referral_request_resumes` when a resume is uploaded.
+**Tables touched:** `profiles` (insert/update). `resume_files` is defined in the schema but is
+not written by the application.
 
 **Business rule enforced here:** wishlist and referral-request limits are enforced by their
 respective company and referral services, not by profile save.
@@ -178,14 +176,14 @@ Runs in one DB transaction (`confirmInTransaction`):
      defaults `openToMeet=false`, `slotCapacity=3`, `referralLimit=10`, and saves it.
    - Deletes all OTPs for the user (cleanup).
 7. Returns the referrer `Settings` (verified, work email, company name, meeting availability,
-   role preferences, and assignment limit) so the UI can show the
+   referral-request opt-in, role preferences, and assignment limit) so the UI can show the
    "Referrer at {Company}" chip and settings form.
 
 ### 3c. Update referrer settings (`PUT /api/referrer/settings`)
 - Requires `verified_at IS NOT NULL` first (`403 Verify your work email first.`).
-- Lets the referrer toggle the legacy `open_to_meet` setting, set role preferences, and adjust the legacy
+- Lets the referrer toggle the legacy `open_to_meet` setting and the separate
+  `accepts_referral_requests` opt-in, set role preferences, and adjust the legacy
   `slot_capacity` plus active referral `referral_limit` (1–10).
-- Every verified referrer at a company automatically receives referral requests for that company.
 
 **Tables touched:** `email_otps` (insert/update/delete), `companies` (insert-if-absent),
 `referrer_profiles` (insert/update).
@@ -193,10 +191,10 @@ Runs in one DB transaction (`confirmInTransaction`):
 ### If the user has NOT verified their work email yet — what happens?
 - `referrer_profiles` has no row (or `verified_at IS NULL`) for them.
 - `GET /api/me` → `isReferrer = false`. The profile shows the work-email verification form;
-  referrer settings are available only after verification.
+  referral-request opt-in controls are available only after verification.
 - They can still use seeker features (company directory, wishlist, referral requests, badge,
   and their own referral status) without verifying a work email.
-- They cannot receive or respond to referral requests as a referrer, or change verified
+- They cannot opt in to receive referral requests or respond as a referrer, or change verified
   referrer settings (`PUT /api/referrer/settings` returns `403` until verified).
 - There's no partial/pending state surfaced in the UI beyond the verify-email form itself —
   verification is binary (not verified → verified), not a multi-step "pending review" queue.
@@ -244,22 +242,22 @@ requests use a separate request/response lifecycle.
 
 **Create (`POST /api/referral-requests`):**
 - Any signed-in seeker with a profile can request a referral; work-email verification is not
-  required. The seeker chooses a company and free-form role title, may add an HTTPS job URL
-  and note, and explicitly consents to sharing their profile summary.
+  required. The seeker chooses a company and free-form role title, provides an HTTPS job URL,
+  may add a note, and explicitly consents to sharing their profile summary.
 - The company must have at least one verified referrer. A seeker cannot request help
   from their own verified company or submit another active request for the same company/role.
 - One company/role request counts once, regardless of how many employee responses it creates.
   All verified referrers at that company receive a pending response and email.
 - The seeker's sign-in email is shared with employees who accept; it remains hidden from
   pending invitees. The seeker may choose whether to share their optional profile phone number.
-  If a resume is uploaded, it is automatically included with the request and invited verified
-  referrers can download it while their response is pending or accepted.
+- If a resume is uploaded, it is included automatically. Invited verified referrers can download
+  its request-specific snapshot while their response is pending or accepted.
 - The request has a four-day response window. If nobody accepts, it expires and refunds the
   base allowance or restores the bonus credit that was consumed.
 
 **Employee inbox and decisions (`GET /api/referral-requests/inbox`, `POST /api/referral-requests/{id}/accept|decline`):**
-- Only verified employees who opted in for that company are invited and can respond. Role
-  preferences are informational; they do not filter the invitation list.
+- All verified referrers at the company are invited and can respond. Role preferences are
+  informational; they do not filter the invitation list.
 - Employees see the seeker name and the profile fields the seeker consented to share, but no
   contact fields before acceptance. Each employee can accept or decline independently; several
   employees may accept one request.
@@ -362,11 +360,11 @@ yet (no stats endpoint, company/sponsor management, report queue, or badge/QR bu
 |---|---|
 | Google/GitHub sign-in, auto account creation | ✅ Implemented |
 | Seeker profile (pitch, skills, roles, links, hide-from-company) | ✅ Implemented |
-| Resume upload and authorized referrer download (PDF, stored in DB) | ✅ Implemented |
+| Resume upload (PDF, stored in DB) | ❌ Not implemented (schema/entity only) |
 | Work-email OTP verification, auto company creation from domain | ✅ Implemented |
-| Companies list with verified referrer availability, no employee names | ✅ Implemented |
+| Companies list with opted-in referrer availability, no employee names | ✅ Implemented |
 | Wishlist (max 5, no self-company) | ✅ Implemented |
-| Company referral requests (5 per 30 days, multiple verified referrers) | ✅ Implemented |
+| Company referral requests (5 per 30 days, multiple opted-in referrers) | ✅ Implemented |
 | Referral accept/decline, active assignment capacity, contact consent | ✅ Implemented |
 | Submission confirmation, capped credits, expiry/refund | ✅ Implemented |
 | In-app invitation notifications and capped email reminders | ✅ Implemented |

@@ -1,7 +1,7 @@
 package com.referralportal.referral;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -13,11 +13,9 @@ import com.referralportal.dto.ReferralRequestDtos.ReferrerInboxItem;
 import com.referralportal.dto.ReferralRequestDtos.SeekerRequest;
 import com.referralportal.service.CompanyReferralRequestService;
 import com.referralportal.service.CompanyService;
-import com.referralportal.service.CompanyService;
 import com.referralportal.service.ReferralRequestBudget;
 import com.referralportal.service.ReferralRequestScheduler;
 import com.referralportal.service.ResumeService;
-import org.springframework.mock.web.MockMultipartFile;
 import com.referralportal.repository.jpa.ReferralRequestResponseJpaRepository;
 import jakarta.validation.Validator;
 import jakarta.persistence.EntityManager;
@@ -30,6 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -188,7 +187,7 @@ class CompanyReferralRequestFlowTests {
                 assertArrayEquals(pdf, originalSnapshot.getData());
 
                 SeekerRequest automaticShareRequest = requests.create(authentication(seekerEmail, "Resume Seeker"),
-                        new CreateRequest(companyId, "Data Engineer", "", "", true, false));
+                        new CreateRequest(companyId, "Data Engineer", "https://jobs.example.test/data-engineer", "", true, false));
                 assertEquals("updated.pdf", resumes.downloadForReferrer(
                         authentication(referrerEmail, "Resume Referrer"), automaticShareRequest.id()).getFilename());
 
@@ -220,7 +219,7 @@ class CompanyReferralRequestFlowTests {
                                 new byte[]{'%', 'P', 'D', 'F', '-', '1', '.', '7'}));
 
                 SeekerRequest request = requests.create(authentication(seekerEmail, "Retention Seeker"),
-                        new CreateRequest(companyId, "Engineer", "", "", true, false));
+                        new CreateRequest(companyId, "Engineer", "https://jobs.example.test/engineer", "", true, false));
                 assertEquals(1, count("referral_request_resumes", "request_id = ?", request.id()));
 
                 jdbc.sql("UPDATE company_referral_requests SET status = 'expired', "
@@ -235,13 +234,16 @@ class CompanyReferralRequestFlowTests {
         }
 
         @Test
-        void jobUrlIsOptionalButMustUseHttpsWhenProvided() {
+        void jobUrlIsRequiredAndMustUseHttps() {
                 CreateRequest withoutUrl = new CreateRequest(1L, "Backend Engineer", "", "", true, false);
                 CreateRequest insecureUrl = new CreateRequest(1L, "Backend Engineer", "http://jobs.example.test/role", "", true, false);
+                CreateRequest validUrl = new CreateRequest(1L, "Backend Engineer", "https://jobs.example.test/role", "", true, false);
 
-                assertFalse(validator.validate(withoutUrl).stream()
+                assertTrue(validator.validate(withoutUrl).stream()
                                 .anyMatch(violation -> "jobUrl".equals(violation.getPropertyPath().toString())));
                 assertTrue(validator.validate(insecureUrl).stream()
+                                .anyMatch(violation -> "jobUrl".equals(violation.getPropertyPath().toString())));
+                assertFalse(validator.validate(validUrl).stream()
                                 .anyMatch(violation -> "jobUrl".equals(violation.getPropertyPath().toString())));
         }
 
@@ -524,7 +526,7 @@ class CompanyReferralRequestFlowTests {
 
     private void insertReferrer(long userId, long companyId, String workEmail) {
         jdbc.sql("INSERT INTO referrer_profiles (user_id, company_id, work_email, verified_at, accepts_referral_requests) "
-                + "VALUES (?, ?, ?, CURRENT_TIMESTAMP, FALSE)")
+                + "VALUES (?, ?, ?, CURRENT_TIMESTAMP, TRUE)")
                 .params(userId, companyId, workEmail).update();
     }
 
