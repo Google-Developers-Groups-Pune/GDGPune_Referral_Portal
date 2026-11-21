@@ -89,7 +89,7 @@ Spring Security OAuth2 login → [UserService.java](/d:/GDG/Referral-Portal/back
 
 **Tables touched:** `users` (insert/select), `badges` (insert on first login only).
 
-**MVP boundary:** LinkedIn sign-in is not implemented; Google and GitHub are supported.
+**Supported sign-in methods:** email/password, Google OAuth, and GitHub OAuth. LinkedIn sign-in is not planned for the MVP.
 
 ## 2. Register with email and password
 
@@ -114,7 +114,7 @@ removes expired pending rows.
 
 ---
 
-## 2. Build / edit profile (seeker side)
+## 3. Build / edit profile (seeker side)
 
 **Where:** [Profile.tsx](/d:/GDG/Referral-Portal/frontend/src/pages/Profile.tsx) →
 `PUT /api/me/profile` → [ProfileController.java](/d:/GDG/Referral-Portal/backend/src/main/java/com/referralportal/controller/ProfileController.java) →
@@ -151,7 +151,7 @@ respective company and referral services, not by profile save.
 
 ---
 
-## 3. Work-email verification (becoming a referrer)
+## 4. Work-email verification (becoming a referrer)
 
 **Where:** Verify-email card inside [Profile.tsx](/d:/GDG/Referral-Portal/frontend/src/pages/Profile.tsx) →
 `POST /api/referrer/verify/start` and `/confirm` →
@@ -222,7 +222,7 @@ Runs in one DB transaction (`confirmInTransaction`):
 
 ---
 
-## 4. Companies list and wishlist
+## 5. Companies list and wishlist
 
 **Where:** [Companies.tsx](/d:/GDG/Referral-Portal/frontend/src/pages/Companies.tsx) →
 `GET /api/companies`, `PUT/DELETE /api/wishlist/:companyId` →
@@ -256,7 +256,7 @@ Runs in one DB transaction (`confirmInTransaction`):
 
 ---
 
-## 5. Company referral requests
+## 6. Company referral requests
 
 The former per-employee meeting/chat entry points are removed from the frontend. Their
 controllers, endpoints, schema, and existing records are retained as legacy code. New referral
@@ -307,7 +307,7 @@ requests use a separate request/response lifecycle.
 
 ---
 
-## 6. Badge / QR
+## 7. Badge / QR
 
 **Where:** [Badge.tsx](/d:/GDG/Referral-Portal/frontend/src/pages/Badge.tsx) →
 `GET /api/me/badge` → [BadgeController.java](/d:/GDG/Referral-Portal/backend/src/main/java/com/referralportal/controller/BadgeController.java) →
@@ -328,7 +328,7 @@ to scan someone else's badge to open their profile.
 
 ---
 
-## 7. Referral tracking
+## 8. Referral tracking
 
 The Referrals screen shows both requests sent by the current seeker and requests assigned to
 the current referrer. The seeker sees pending/declined counts without the identities of
@@ -347,7 +347,7 @@ integration, candidate search, or resume upload is part of this flow.
 
 ---
 
-## 8. Account deletion
+## 9. Account deletion
 
 **Where:** `DELETE /api/me/account` → [AccountController.java](/d:/GDG/Referral-Portal/backend/src/main/java/com/referralportal/controller/AccountController.java) →
 [AccountService.java](/d:/GDG/Referral-Portal/backend/src/main/java/com/referralportal/service/AccountService.java) →
@@ -371,7 +371,7 @@ integration, candidate search, or resume upload is part of this flow.
 
 ---
 
-## 9. Admin panel
+## 10. Admin panel
 
 Not implemented. `users.is_admin` exists in the schema; no admin controller/service/UI exists
 yet (no stats endpoint, company/sponsor management, report queue, or badge/QR bulk export).
@@ -405,4 +405,4 @@ yet (no stats endpoint, company/sponsor management, report queue, or badge/QR bu
 | Legacy meeting credit ledger | ⚠️ Unused; referral-request credits use separate expiring records |
 | Message retention job (30-90 days) | ❌ Not implemented |
 | Admin panel (stats, companies, sponsors, report queue, export) | ❌ Not implemented |
-| LinkedIn sign-in | ❌ Not currently supported; Google and GitHub sign-in are available |
+| LinkedIn sign-in | ❌ Not planned for MVP |

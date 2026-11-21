@@ -20,7 +20,7 @@ import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 @SpringBootTest(properties = {
@@ -32,7 +32,6 @@ import org.springframework.web.server.ResponseStatusException;
         "spring.datasource.username=referral",
         "spring.datasource.password=referral_local"
 })
-@Transactional
 class PasswordRegistrationVerificationTests {
 
     private static final Pattern CODE_PATTERN = Pattern.compile("code is ([0-9]{6})\\.");
@@ -47,6 +46,8 @@ class PasswordRegistrationVerificationTests {
     private PendingPasswordRegistrationJpaRepository pendingRegistrations;
     @Autowired
     private PasswordEncoder passwordEncoder;
+    @Autowired
+    private TransactionTemplate transactionTemplate;
     @MockitoBean
     private JavaMailSender mailSender;
 
@@ -75,13 +76,14 @@ class PasswordRegistrationVerificationTests {
         assertThat(user.getAuthProvider()).isEqualTo("password");
         assertThat(passwordEncoder.matches(password, user.getPasswordHash())).isTrue();
         assertThat(pendingRegistrations.findById(email)).isEmpty();
+        deleteUser(user.getId());
     }
 
     @Test
     void existingOAuthEmailCannotStartPasswordRegistration() {
         String suffix = UUID.randomUUID().toString().replace("-", "");
         String email = "oauth-owner-" + suffix + "@example.test";
-        userRepository.createAccount("OAuth Owner", email, "google", "synthetic-test-qr-token");
+        userRepository.createAccount("OAuth Owner", email, "google", "oauth-" + suffix.substring(0, 12));
 
         auth.beginRegistration("Impersonator", email, "correct horse 42", "127.0.0.1");
 
@@ -90,6 +92,11 @@ class PasswordRegistrationVerificationTests {
         assertThat(existing.getPasswordHash()).isNull();
         assertThat(pendingRegistrations.findById(email)).isEmpty();
         verify(mailSender, never()).send(org.mockito.ArgumentMatchers.any(SimpleMailMessage.class));
+        deleteUser(existing.getId());
+    }
+
+    private void deleteUser(long userId) {
+        transactionTemplate.executeWithoutResult(status -> userRepository.deleteAccount(userId));
     }
 
     private SimpleMailMessage lastSentEmail() {

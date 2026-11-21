@@ -168,7 +168,7 @@ export default function SignIn({ loginError }: { loginError: boolean }) {
                 className="mt-1 w-full rounded-xl border border-line bg-white px-3 py-2 text-sm outline-none focus:border-gblue"
               />
               <p className="mt-1 text-xs text-muted">If this email can be registered, a code has been sent. It expires in 10 minutes.</p>
-              <button type="button" disabled={registrationPending} onClick={() => beginRegistration.mutate()} className="mt-1 text-xs font-semibold text-gblue underline disabled:opacity-60">
+              <button type="button" disabled={registrationPending} onClick={() => { verifyRegistration.reset(); beginRegistration.mutate() }} className="mt-1 text-xs font-semibold text-gblue underline disabled:opacity-60">
                 Resend code
               </button>
             </div>

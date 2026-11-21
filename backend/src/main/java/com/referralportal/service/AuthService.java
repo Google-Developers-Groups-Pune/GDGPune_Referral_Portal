@@ -18,7 +18,10 @@ import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 /** Registration for email/password accounts. Sign-in itself goes through AuthenticationManager. */
@@ -42,6 +45,8 @@ public class AuthService {
     private LoginAttemptRateLimiter loginAttemptRateLimiter;
     @Autowired
     private JavaMailSender mailSender;
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @Value("${app.mail-from:}")
     private String mailFrom;
@@ -100,8 +105,12 @@ public class AuthService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "The password does not match this registration. Use the password you entered when requesting the code.");
         }
+        TransactionTemplate accountTransaction = new TransactionTemplate(transactionManager);
+        accountTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         try {
-            users.createPasswordAccount(pending.getName(), normalizedEmail, pending.getPasswordHash(), newToken());
+            accountTransaction.executeWithoutResult(status ->
+                    users.createPasswordAccount(pending.getName(), normalizedEmail,
+                            pending.getPasswordHash(), newToken()));
         } catch (DataIntegrityViolationException concurrentInsert) {
             pendingRegistrations.delete(pending);
             throw emailTaken();
