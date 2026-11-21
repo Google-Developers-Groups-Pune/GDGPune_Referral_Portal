@@ -107,12 +107,12 @@ sequenceDiagram
     UI->>API: GET /api/me and profile
     Seeker->>UI: Complete profile; browse companies
     UI->>API: GET /api/companies
-    API->>DB: Find companies with verified, opted-in referrers
+    API->>DB: Find companies with verified referrers
     Seeker->>UI: Submit company + role + sharing choices
     UI->>API: POST /api/referral-requests
     API->>DB: Validate eligibility / allowance; save request and invite responses
     API->>DB: Save in-app notifications
-    API-->>Mail: Invite opted-in employees by email
+    API-->>Mail: Invite verified referrers by email
     Referrer->>UI: Accept or decline; choose contact-sharing
     UI->>API: POST /api/referral-requests/{id}/accept
     API->>DB: Save response and acceptance
@@ -124,10 +124,10 @@ sequenceDiagram
     API->>DB: Confirm and award eligible request credit
 ```
 
-Each referral request is for one company and role; it creates a response for each eligible
-opted-in employee. Referral acceptance and submission are tracked in the portal, but the
+Each referral request is for one company and role; it creates a response for each verified
+referrer at that company. Referral acceptance and submission are tracked in the portal, but the
 portal does not submit a candidate to the employer's hiring system. Request allowance,
-opt-in, work-email verification, assignment capacity, and per-request contact-sharing
+work-email verification, assignment capacity, and per-request contact-sharing
 consent are enforced by backend services.
 
 ## Data domains
@@ -225,8 +225,8 @@ implemented in the current UI.
 
 - **Authentication:** Google/GitHub OAuth creates an application session. API routes
   require authentication; mutations use the CSRF token cookie/header pair.
-- **Work-email verification:** an employee verifies a work email by OTP before opting in
-  as a referrer. Verification and referral-request opt-in are separate actions.
+- **Work-email verification:** verifying a work email by OTP automatically enables the
+    employee to receive referral requests for that company.
 - **Notifications:** referral invitations and lifecycle events are persisted as in-app
   notifications; configured SMTP is used for invitations, reminders, and verification.
 - **Automation:** the backend periodically expires unanswered requests, refunds eligible

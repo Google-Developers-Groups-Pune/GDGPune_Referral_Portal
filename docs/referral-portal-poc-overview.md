@@ -15,32 +15,32 @@ The current development service deploys from Git. A feature branch is not availa
 
 ## 1. The idea
 
-Referral Portal is a mobile-first app where job seekers request help from opted-in employees and track referral handoffs at their companies.
+Referral Portal is a mobile-first app where job seekers request help from verified employees and track referral handoffs at their companies.
 
 - A **seeker** creates a profile, browses eligible companies, saves companies, and requests help with a company and role.
-- A **referrer** verifies a work email, opts in to referral requests, and may refer a candidate.
-- A **referral request** is sent to opted-in employees at one company; multiple employees may accept.
+- A **referrer** verifies a work email and then receives referral requests for that company.
+- A **referral request** is sent to verified referrers at one company; multiple employees may accept.
 - A **referral** is a tracked internal handoff. The portal does not submit a candidate to a company's hiring system.
 
-The MVP supports the referral handoff between job seekers and opted-in employees. It is not a job board or recruitment platform, and it does not submit candidates into employers' hiring systems.
+The MVP supports the referral handoff between job seekers and verified employees. It is not a job board or recruitment platform, and it does not submit candidates into employers' hiring systems.
 
 ## 2. Current MVP capabilities
 
 | Capability | MVP status | Notes |
 |---|---|---|
 | Google and GitHub sign-in | IN MVP | OAuth creates a user the first time; later sign-ins reuse the account by email. |
-| Seeker profile | IN MVP | Experience, skills, roles wanted, pitch, GitHub/LinkedIn/portfolio links, and optional phone. Resume upload is planned. |
+| Seeker profile | IN MVP | Experience, skills, roles wanted, pitch, GitHub/LinkedIn/portfolio links, optional phone, and PDF resume upload. |
 | Work-email verification | IN MVP | Six-digit emailed code; unlocks referrer settings. It is not required to sign in or save a seeker profile. |
-| Company directory | IN MVP | Companies with at least one verified employee opted in to referral requests; employee identities are not listed. |
+| Company directory | IN MVP | Companies with at least one verified referrer; employee identities are not listed. |
 | Wishlist | IN MVP | A seeker can save up to five companies. |
-| Company referral requests | IN MVP | A seeker requests one company/role; every opted-in employee is invited, and several can accept. |
+| Company referral requests | IN MVP | A seeker requests one company/role; every verified referrer is invited, and several can accept. |
 | Referral submission tracking | IN MVP | Referrers mark internal submission; seekers confirm. The app does not submit to the employer's system. |
 | Referral request credits | IN MVP | Five base requests per rolling 30 days; capped earned credits can raise the allowance. |
 | Referral reminders | IN MVP | Accepted referrers receive up to three email reminders at two-day intervals. |
 | Light/dark theme | IN MVP | Theme choice persists in the current browser. |
 | Legacy meeting/chat APIs | RETAINED, HIDDEN IN UI | Tables, endpoints, and old data remain for possible future use; the frontend no longer starts meetings or chats. |
 | QR badge | IN MVP | Contains a random token, not the user's database ID. |
-| Resume upload | PLANNED | Reserved storage exists; upload and authenticated download are not implemented. |
+| Resume upload | IN MVP | Seekers upload, replace, download, and delete one PDF. An uploaded resume is automatically shared with invited verified referrers before they accept. |
 | Copy referral packet | IN MVP | Accepted referrers can preview/copy consent-filtered details; employer submission remains manual. |
 | Account deletion | IN MVP | Permanently deletes a user's account and associated data after explicit confirmation. |
 | Profile save without work email | IN MVP | Work-email verification is optional for seeker features and only required to become a referrer. |
@@ -53,7 +53,7 @@ These capabilities are not currently available to end users:
 - Camera-based QR scanning, scan history, and offline scan synchronization.
 - Candidate search/cards and the referrer's Save, Pass, and Refer actions.
 - Referrals-made history and manual post-submission status updates. Accepted referrers can copy a packet from an active request.
-- Resume upload and private download.
+- Production object-storage migration for resumes. The MVP currently stores PDF bytes in MySQL `resume_files`.
 - Enforcement of the hide-from-my-company privacy option in search and scans.
 - Creating reports or blocks in the user interface. Existing block records are checked in conversation rules.
 - A separate notification center. Referral requests appear in the Referrals inbox, and invite/reminder emails use the configured mail provider.
@@ -93,7 +93,7 @@ The `users` table is the identity anchor: one row per person. A person can be bo
 
 - `users` stores the sign-in identity, name, email, provider, consent time, and creation time.
 - `profiles` stores the seeker's experience, skills, pitch, GitHub/LinkedIn/portfolio links, and optional phone. Its `user_id` points to `users.id`.
-- `referrer_profiles` stores the employee side: verified work email, company, job title, referral-request opt-in, role preferences, and active-assignment limit. Verification alone does not opt someone in.
+- `referrer_profiles` stores the employee side: verified work email, company, job title, role preferences, and active-assignment limit. Verification enables referral requests automatically.
 - `badges` stores one random QR token per user.
 
 Sign-in email and work email are different concepts. The login email belongs to `users`; the verified company email belongs to `referrer_profiles` after OTP confirmation.
@@ -147,7 +147,7 @@ The wishlist's composite key (`seeker_id`, `company_id`) prevents duplicate save
 
 1. Any seeker with a profile selects a company and free-form role title; an HTTPS job URL and note are optional. Work-email verification is not required to seek a referral.
 2. The seeker explicitly consents to sharing a profile summary. Their sign-in email is shared only with employees who accept; sharing an optional phone remains a separate choice.
-3. The backend validates the company, excludes the seeker's own verified company, enforces duplicate-request and rolling allowance rules, then creates one `company_referral_requests` row and one pending `referral_request_responses` row for every opted-in employee.
+3. The backend validates the company, excludes the seeker's own verified company, enforces duplicate-request and rolling allowance rules, then creates one `company_referral_requests` row and one pending `referral_request_responses` row for every verified referrer at that company.
 4. Invitees receive an in-app inbox item and a work-email notification. Role preferences do not filter invitations. Multiple employees may accept; each acceptance independently uses active-assignment capacity and collects its contact-sharing choices.
 5. An accepted referrer uses the employer's internal process and marks the referral submitted. The app creates a `referrals` row but does not submit anything into the employer's internal portal.
 6. The seeker confirms that submission. The referrer may earn one bonus request credit, capped at two credits per rolling 30 days; credits expire after 90 days.
@@ -190,7 +190,7 @@ The schema has **20 application tables**, grouped by what they represent:
 | `reports_blocks` | Report/block records | PARTIAL; existing blocks are checked |
 | `credit_ledger` | Request credits | PARTIAL; currently contributes zero |
 | `notifications` | Referral invitation and status notifications | IN MVP |
-| `resume_files` | Reserved private resume storage | PLANNED |
+| `resume_files` | Private seeker resume PDF storage | IN MVP |
 
 ## 8. Initial data and quality status
 
@@ -203,7 +203,7 @@ The schema has **20 application tables**, grouped by what they represent:
 ## 9. MVP limits and operational risks
 
 - The app tracks that an employee submitted a referral but cannot submit a candidate into an employer's internal hiring system.
-- Resume upload, reports, message retention, camera scanning, and admin tools are not implemented.
+- Reports, message retention, camera scanning, and admin tools are not implemented. Resume upload/download is implemented in the development MVP.
 - The browser theme preference is not synchronized between devices or accounts.
 - Account deletion is permanent; test it with a disposable account, not a primary account.
 - Email codes depend on working Brevo SMTP settings and deliverability.
@@ -212,7 +212,7 @@ The schema has **20 application tables**, grouped by what they represent:
 
 ## 10. One-minute explanation
 
-> One person signs in and gets a row in `users` plus a random QR badge. Their seeker profile works without company-email verification. A verified employee separately opts in to help with referrals. A seeker request creates one company/role record and individual responses for opted-in employees. Accepted employees can share selected contacts, mark an internal referral submitted, and receive reminders; the seeker confirms submission before the referrer earns a capped request credit. The portal tracks the handoff but does not submit to the company's internal hiring system.
+> One person signs in and gets a row in `users` plus a random QR badge. Their seeker profile works without company-email verification. A verified employee automatically receives requests for their company. A seeker request creates one company/role record and individual responses for verified referrers. Accepted employees can share selected contacts, mark an internal referral submitted, and receive reminders; the seeker confirms submission before the referrer earns a capped request credit. The portal tracks the handoff but does not submit to the company's internal hiring system.
 
 ---
 

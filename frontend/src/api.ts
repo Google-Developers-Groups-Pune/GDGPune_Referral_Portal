@@ -81,6 +81,7 @@ export type ReferralRequestInboxItem = {
   canSharePhone: boolean
   seekerEmail: string | null
   seekerPhone: string | null
+  resumeAvailable: boolean
   status: string
   createdAt: string
   acceptedAt: string | null
@@ -115,6 +116,13 @@ export type Referral = {
 
 export type Badge = { name: string; token: string }
 
+export type ResumeInfo = {
+  filename: string
+  contentType: string
+  sizeBytes: number
+  uploadedAt: string
+}
+
 export type ReferrerSettings = {
   verified: boolean
   workEmail: string | null
@@ -122,7 +130,6 @@ export type ReferrerSettings = {
   openToMeet: boolean
   slotCapacity: number
   referralLimit: number
-  acceptsReferralRequests: boolean
   referralRolePreferences: string[]
 }
 
@@ -165,6 +172,68 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
   }
   const text = await res.text()
   return (text ? JSON.parse(text) : undefined) as T
+}
+
+export async function uploadResume(file: File): Promise<void> {
+  const form = new FormData()
+  form.set('file', file)
+  const res = await fetch('/api/me/resume', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'X-XSRF-TOKEN': csrfToken() },
+    body: form,
+  })
+  if (!res.ok) {
+    let message = 'Could not upload the resume.'
+    try {
+      const data = await res.json()
+      if (data?.message) message = data.message
+    } catch {
+    }
+    throw new ApiError(res.status, message)
+  }
+}
+
+export async function deleteResume(): Promise<void> {
+  const res = await fetch('/api/me/resume', {
+    method: 'DELETE',
+    credentials: 'include',
+    headers: { 'X-XSRF-TOKEN': csrfToken() },
+  })
+  if (!res.ok) {
+    let message = 'Could not remove the resume.'
+    try {
+      const data = await res.json()
+      if (data?.message) message = data.message
+    } catch {
+    }
+    throw new ApiError(res.status, message)
+  }
+}
+
+export async function downloadPdf(path: string, fallbackFilename: string): Promise<void> {
+  const res = await fetch(path, { credentials: 'include' })
+  if (!res.ok) {
+    let message = 'Could not download the PDF.'
+    try {
+      const data = await res.json()
+      if (data?.message) message = data.message
+    } catch {
+    }
+    throw new ApiError(res.status, message)
+  }
+  const blob = await res.blob()
+  const objectUrl = URL.createObjectURL(blob)
+  const disposition = res.headers.get('Content-Disposition')
+  const filenameMatch = disposition?.match(/filename="?([^";]+)"?/i)
+  const filename = filenameMatch?.[1] ?? fallbackFilename
+  const link = document.createElement('a')
+  link.href = objectUrl
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(objectUrl)
 }
 
 export async function fetchMe(): Promise<Me | null> {

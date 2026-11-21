@@ -15,6 +15,8 @@ import com.referralportal.service.CompanyService;
 import com.referralportal.service.CompanyService;
 import com.referralportal.service.ReferralRequestBudget;
 import com.referralportal.service.ReferralRequestScheduler;
+import com.referralportal.service.ResumeService;
+import org.springframework.mock.web.MockMultipartFile;
 import com.referralportal.repository.jpa.ReferralRequestResponseJpaRepository;
 import jakarta.validation.Validator;
 import jakarta.persistence.EntityManager;
@@ -68,6 +70,9 @@ class CompanyReferralRequestFlowTests {
 
         @Autowired
         private ReferralRequestScheduler scheduler;
+
+        @Autowired
+        private ResumeService resumes;
 
         @Autowired
         private ReferralRequestResponseJpaRepository responses;
@@ -135,6 +140,59 @@ class CompanyReferralRequestFlowTests {
     }
 
         @Test
+        void resumeUploadRejectsMissingAndNonPdfFiles() {
+                String seekerEmail = "resume-test-" + UUID.randomUUID().toString().replace("-", "") + "@example.test";
+                insertUser("Resume Seeker", seekerEmail);
+
+                assertThrows(ResponseStatusException.class,
+                        () -> resumes.upload(authentication(seekerEmail, "Resume Seeker"), null));
+
+                MockMultipartFile notPdf = new MockMultipartFile("file", "resume.txt", "text/plain", "not a pdf".getBytes());
+                ResponseStatusException nonPdf = assertThrows(ResponseStatusException.class,
+                        () -> resumes.upload(authentication(seekerEmail, "Resume Seeker"), notPdf));
+                assertEquals(HttpStatus.UNSUPPORTED_MEDIA_TYPE, nonPdf.getStatusCode());
+        }
+
+        @Test
+        void resumeIsAutomaticallyAvailableToInvitedReferrersBeforeAcceptance() {
+                String suffix = UUID.randomUUID().toString().replace("-", "");
+                String seekerEmail = "resume-seeker-" + suffix + "@example.test";
+                String referrerEmail = "resume-referrer-" + suffix + "@example.test";
+                long seekerId = insertUser("Resume Seeker", seekerEmail);
+                long referrerId = insertUser("Resume Referrer", referrerEmail);
+                long companyId = insertCompany(suffix);
+                insertProfile(seekerId, null);
+                insertReferrer(referrerId, companyId, "resume-work-" + suffix + "@company.test");
+
+                byte[] pdf = new byte[]{'%', 'P', 'D', 'F', '-', '1', '.', '7'};
+                resumes.upload(authentication(seekerEmail, "Resume Seeker"),
+                        new MockMultipartFile("file", "candidate.pdf", "application/pdf", pdf));
+
+                SeekerRequest request = requests.create(authentication(seekerEmail, "Resume Seeker"),
+                        new CreateRequest(companyId, "Backend Engineer", "https://jobs.example.test/backend", "", true, false));
+
+                assertTrue(requests.inbox(authentication(referrerEmail, "Resume Referrer")).stream()
+                        .filter(item -> item.requestId() == request.id()).findFirst().orElseThrow().resumeAvailable());
+                assertEquals("candidate.pdf", resumes.downloadForReferrer(
+                        authentication(referrerEmail, "Resume Referrer"), request.id()).getFilename());
+
+                requests.accept(authentication(referrerEmail, "Resume Referrer"), request.id(), new AcceptRequest(false, false));
+                assertEquals("candidate.pdf", resumes.downloadForReferrer(authentication(referrerEmail, "Resume Referrer"), request.id()).getFilename());
+
+                SeekerRequest automaticShareRequest = requests.create(authentication(seekerEmail, "Resume Seeker"),
+                        new CreateRequest(companyId, "Data Engineer", "", "", true, false));
+                assertEquals("candidate.pdf", resumes.downloadForReferrer(
+                        authentication(referrerEmail, "Resume Referrer"), automaticShareRequest.id()).getFilename());
+
+                requests.decline(authentication(referrerEmail, "Resume Referrer"), automaticShareRequest.id());
+                ResponseStatusException declined = assertThrows(ResponseStatusException.class,
+                        () -> resumes.downloadForReferrer(authentication(referrerEmail, "Resume Referrer"), automaticShareRequest.id()));
+                assertEquals(HttpStatus.FORBIDDEN, declined.getStatusCode());
+
+                assertEquals(1, count("resume_files", "user_id = ?", seekerId));
+        }
+
+        @Test
         void jobUrlIsOptionalButMustUseHttpsWhenProvided() {
                 CreateRequest withoutUrl = new CreateRequest(1L, "Backend Engineer", "", "", true, false);
                 CreateRequest insecureUrl = new CreateRequest(1L, "Backend Engineer", "http://jobs.example.test/role", "", true, false);
@@ -146,23 +204,25 @@ class CompanyReferralRequestFlowTests {
         }
 
         @Test
-        void directoryShowsOnlyCompaniesWithOptedInReferrersAndNoEmployeeData() {
+        void directoryShowsCompaniesWithVerifiedReferrersAndNoEmployeeData() {
                 String suffix = UUID.randomUUID().toString().replace("-", "");
                 String seekerEmail = "directory-seeker-" + suffix + "@example.test";
                 insertUser("Directory Seeker", seekerEmail);
-                long acceptingCompanyId = insertCompany(suffix);
-                long pausedCompanyId = insertCompany("paused-" + suffix);
-                long acceptingReferrerId = insertUser("Accepting Referrer", "accepting-" + suffix + "@example.test");
-                long pausedReferrerId = insertUser("Paused Referrer", "paused-" + suffix + "@example.test");
-                insertReferrer(acceptingReferrerId, acceptingCompanyId, "accepting-work-" + suffix + "@company.test");
+                long firstCompanyId = insertCompany(suffix);
+                long secondCompanyId = insertCompany("second-" + suffix);
+                long unverifiedCompanyId = insertCompany("unverified-" + suffix);
+                long firstReferrerId = insertUser("First Referrer", "first-" + suffix + "@example.test");
+                long secondReferrerId = insertUser("Second Referrer", "second-" + suffix + "@example.test");
+                insertReferrer(firstReferrerId, firstCompanyId, "first-work-" + suffix + "@company.test");
                 jdbc.sql("INSERT INTO referrer_profiles (user_id, company_id, work_email, verified_at) "
                                 + "VALUES (?, ?, ?, CURRENT_TIMESTAMP)")
-                                .params(pausedReferrerId, pausedCompanyId, "paused-work-" + suffix + "@company.test").update();
+                                .params(secondReferrerId, secondCompanyId, "second-work-" + suffix + "@company.test").update();
 
                 var directory = companies.list(authentication(seekerEmail, "Directory Seeker"));
 
-                assertTrue(directory.companies().stream().anyMatch(company -> company.id() == acceptingCompanyId));
-                assertTrue(directory.companies().stream().noneMatch(company -> company.id() == pausedCompanyId));
+                assertTrue(directory.companies().stream().anyMatch(company -> company.id() == firstCompanyId));
+                assertTrue(directory.companies().stream().anyMatch(company -> company.id() == secondCompanyId));
+                assertTrue(directory.companies().stream().noneMatch(company -> company.id() == unverifiedCompanyId));
                 assertEquals(5, directory.companies().getFirst().getClass().getRecordComponents().length);
                 assertEquals(5, directory.referralRequestsMax());
                 assertEquals(5, directory.referralRequestsLeft());
@@ -422,7 +482,7 @@ class CompanyReferralRequestFlowTests {
 
     private void insertReferrer(long userId, long companyId, String workEmail) {
         jdbc.sql("INSERT INTO referrer_profiles (user_id, company_id, work_email, verified_at, accepts_referral_requests) "
-                + "VALUES (?, ?, ?, CURRENT_TIMESTAMP, TRUE)")
+                + "VALUES (?, ?, ?, CURRENT_TIMESTAMP, FALSE)")
                 .params(userId, companyId, workEmail).update();
     }
 

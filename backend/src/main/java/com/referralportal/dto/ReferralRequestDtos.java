@@ -30,7 +30,7 @@ public final class ReferralRequestDtos {
     public record ReferrerInboxItem(long responseId, long requestId, String companyName, String roleTitle,
             String jobUrl, String seekerName, String experienceLevel, List<String> skills, List<String> rolesWanted,
             List<String> referralRolePreferences, String pitch, String githubUrl, String linkedinUrl, String portfolioUrl, String seekerNote,
-            boolean canSharePhone, String seekerEmail, String seekerPhone, String status, String createdAt,
+            boolean canSharePhone, String seekerEmail, String seekerPhone, boolean resumeAvailable, String status, String createdAt,
             String acceptedAt, String submittedAt, short remindersSent) {}
 
     public record RequestAction(long responseId, String status) {}

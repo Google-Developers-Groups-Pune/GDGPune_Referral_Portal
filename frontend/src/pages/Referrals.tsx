@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Copy, Inbox, Send } from 'lucide-react'
 import { useState } from 'react'
-import { api, type ReferralRequestInboxItem, type SeekerReferralRequest } from '../api'
+import { api, downloadPdf, type ReferralRequestInboxItem, type SeekerReferralRequest } from '../api'
 import { Avatar, Button, Card, Chip, EmptyState, ErrorNote, PageTitle, Spinner } from '../ui'
 
 type RequestAction =
@@ -152,6 +152,15 @@ function ReferrerInboxCard({ item, act, pending }: {
         </div>
       )}
       {item.skills.length > 0 && <div className="flex flex-wrap gap-1.5">{item.skills.map((skill) => <Chip key={skill}>{skill}</Chip>)}</div>}
+      {item.resumeAvailable && (
+        <Button
+          variant="outline"
+          className="w-full"
+          onClick={() => void downloadPdf(`/api/referral-requests/${item.requestId}/resume`, `${item.seekerName}-resume.pdf`)}
+        >
+          Download resume
+        </Button>
+      )}
       {item.status === 'pending' && (
         <div className="space-y-3 border-t border-line pt-3">
           <p className="text-xs text-muted">Your contact details stay private unless you choose to share them. The seeker’s contact is shown only after you accept and only if they opted in.</p>
