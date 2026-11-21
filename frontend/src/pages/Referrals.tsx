@@ -94,6 +94,8 @@ function ReferrerInboxCard({ item, act, pending }: {
   const [sharePhone, setSharePhone] = useState(false)
   const [packetPreviewOpen, setPacketPreviewOpen] = useState(false)
   const [packetCopyMessage, setPacketCopyMessage] = useState('')
+  const [resumeDownloadError, setResumeDownloadError] = useState<string | null>(null)
+  const [resumeDownloadPending, setResumeDownloadPending] = useState(false)
   const status = label(item.status)
   const referralPacket = [
     'Referral details',
@@ -121,6 +123,18 @@ function ReferrerInboxCard({ item, act, pending }: {
       setPacketCopyMessage('Referral packet copied.')
     } catch {
       setPacketCopyMessage('Could not access the clipboard. Select and copy the preview text.')
+    }
+  }
+
+  const downloadResume = async () => {
+    setResumeDownloadError(null)
+    setResumeDownloadPending(true)
+    try {
+      await downloadPdf(`/api/referral-requests/${item.requestId}/resume`, `${item.seekerName}-resume.pdf`)
+    } catch (error) {
+      setResumeDownloadError(error instanceof Error ? error.message : 'Could not download the resume.')
+    } finally {
+      setResumeDownloadPending(false)
     }
   }
 
@@ -153,13 +167,12 @@ function ReferrerInboxCard({ item, act, pending }: {
       )}
       {item.skills.length > 0 && <div className="flex flex-wrap gap-1.5">{item.skills.map((skill) => <Chip key={skill}>{skill}</Chip>)}</div>}
       {item.resumeAvailable && (
-        <Button
-          variant="outline"
-          className="w-full"
-          onClick={() => void downloadPdf(`/api/referral-requests/${item.requestId}/resume`, `${item.seekerName}-resume.pdf`)}
-        >
-          Download resume
-        </Button>
+        <>
+          <ErrorNote message={resumeDownloadError} />
+          <Button variant="outline" disabled={resumeDownloadPending} className="w-full" onClick={() => void downloadResume()}>
+            {resumeDownloadPending ? 'Downloading…' : 'Download resume'}
+          </Button>
+        </>
       )}
       {item.status === 'pending' && (
         <div className="space-y-3 border-t border-line pt-3">

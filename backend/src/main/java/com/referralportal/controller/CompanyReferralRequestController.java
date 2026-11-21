@@ -1,7 +1,7 @@
 package com.referralportal.controller;
 
 import com.referralportal.dto.ReferralRequestDtos;
-import com.referralportal.entity.ResumeFile;
+import com.referralportal.entity.ReferralRequestResume;
 import com.referralportal.service.CompanyReferralRequestService;
 import com.referralportal.service.ResumeService;
 import jakarta.validation.Valid;
@@ -45,7 +45,7 @@ public class CompanyReferralRequestController {
 
     @GetMapping("/referral-requests/{requestId}/resume")
     public ResponseEntity<byte[]> resume(Authentication auth, @PathVariable long requestId) {
-        ResumeFile resume = resumes.downloadForReferrer(auth, requestId);
+        ReferralRequestResume resume = resumes.downloadForReferrer(auth, requestId);
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_PDF)
                 .header(HttpHeaders.CONTENT_DISPOSITION,

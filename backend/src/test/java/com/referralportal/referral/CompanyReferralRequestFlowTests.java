@@ -1,6 +1,7 @@
 package com.referralportal.referral;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -179,9 +180,16 @@ class CompanyReferralRequestFlowTests {
                 requests.accept(authentication(referrerEmail, "Resume Referrer"), request.id(), new AcceptRequest(false, false));
                 assertEquals("candidate.pdf", resumes.downloadForReferrer(authentication(referrerEmail, "Resume Referrer"), request.id()).getFilename());
 
+                byte[] replacementPdf = new byte[]{'%', 'P', 'D', 'F', '-', '2', '.', '0'};
+                resumes.upload(authentication(seekerEmail, "Resume Seeker"),
+                        new MockMultipartFile("file", "updated.pdf", "application/pdf", replacementPdf));
+                var originalSnapshot = resumes.downloadForReferrer(authentication(referrerEmail, "Resume Referrer"), request.id());
+                assertEquals("candidate.pdf", originalSnapshot.getFilename());
+                assertArrayEquals(pdf, originalSnapshot.getData());
+
                 SeekerRequest automaticShareRequest = requests.create(authentication(seekerEmail, "Resume Seeker"),
                         new CreateRequest(companyId, "Data Engineer", "", "", true, false));
-                assertEquals("candidate.pdf", resumes.downloadForReferrer(
+                assertEquals("updated.pdf", resumes.downloadForReferrer(
                         authentication(referrerEmail, "Resume Referrer"), automaticShareRequest.id()).getFilename());
 
                 requests.decline(authentication(referrerEmail, "Resume Referrer"), automaticShareRequest.id());
@@ -189,7 +197,12 @@ class CompanyReferralRequestFlowTests {
                         () -> resumes.downloadForReferrer(authentication(referrerEmail, "Resume Referrer"), automaticShareRequest.id()));
                 assertEquals(HttpStatus.FORBIDDEN, declined.getStatusCode());
 
-                assertEquals(1, count("resume_files", "user_id = ?", seekerId));
+                resumes.delete(authentication(seekerEmail, "Resume Seeker"));
+                ResponseStatusException removed = assertThrows(ResponseStatusException.class,
+                        () -> resumes.downloadForReferrer(authentication(referrerEmail, "Resume Referrer"), request.id()));
+                assertEquals(HttpStatus.NOT_FOUND, removed.getStatusCode());
+                assertEquals(0, count("resume_files", "user_id = ?", seekerId));
+                assertEquals(0, count("referral_request_resumes", "request_id IN (?, ?)", request.id(), automaticShareRequest.id()));
         }
 
         @Test

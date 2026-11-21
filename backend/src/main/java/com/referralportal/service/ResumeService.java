@@ -1,9 +1,11 @@
 package com.referralportal.service;
 
 import com.referralportal.dto.ResumeDtos.ResumeInfo;
+import com.referralportal.entity.ReferralRequestResume;
 import com.referralportal.entity.ResumeFile;
 import com.referralportal.repository.jpa.ResumeFileJpaRepository;
 import com.referralportal.repository.jpa.ReferralRequestResponseJpaRepository;
+import com.referralportal.repository.jpa.ReferralRequestResumeJpaRepository;
 import java.io.IOException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -32,6 +34,8 @@ public class ResumeService {
     private ResumeFileJpaRepository resumes;
     @Autowired
     private ReferralRequestResponseJpaRepository responses;
+    @Autowired
+    private ReferralRequestResumeJpaRepository requestResumes;
 
     @Transactional
     public void upload(Authentication auth, MultipartFile file) {
@@ -56,7 +60,7 @@ public class ResumeService {
                 sha256(data), data, uploadedAt);
     }
 
-    public ResumeFile downloadForReferrer(Authentication auth, long requestId) {
+    public ReferralRequestResume downloadForReferrer(Authentication auth, long requestId) {
         long referrerId = users.current(auth).id();
         var response = responses.findByRequestIdAndReferrerId(requestId, referrerId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.FORBIDDEN, "You were not invited to this referral request."));
@@ -72,9 +76,8 @@ public class ResumeService {
         if (!request.isShareSeekerResume()) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "No resume was included with this request.");
         }
-        long seekerId = request.getSeeker().getId();
-        return resumes.findById(seekerId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "No resume uploaded yet."));
+        return requestResumes.findById(requestId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "No resume was included with this request."));
     }
 
     public ResumeFile download(Authentication auth) {
@@ -92,6 +95,7 @@ public class ResumeService {
     @Transactional
     public void delete(Authentication auth) {
         long userId = users.current(auth).id();
+        requestResumes.deleteBySeekerId(userId);
         resumes.deleteByUserId(userId);
     }
 
