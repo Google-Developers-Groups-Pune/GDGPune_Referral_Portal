@@ -1,0 +1,69 @@
+spring:
+  application:
+    name: referral-portal
+  config:
+    # Optional dotenv files: repo-root .env when run from backend/, or .env in the current folder.
+    import:
+      - "optional:file:../.env[.properties]"
+      - "optional:file:.env[.properties]"
+  datasource:
+    url: ${DB_URL:jdbc:mysql://localhost:3307/referral_portal?allowPublicKeyRetrieval=true&useSSL=false}
+    username: ${DB_USERNAME:referral}
+    password: ${DB_PASSWORD:referral_local}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: none # Flyway owns the schema
+  servlet:
+    multipart:
+      max-file-size: 5MB # resume upload cap; enforced again in ResumeService
+      max-request-size: 6MB
+  flyway:
+    enabled: true
+  mail:
+    host: ${MAIL_HOST:smtp-relay.brevo.com}
+    port: ${MAIL_PORT:2525}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID:not-configured}
+            client-secret: ${GOOGLE_CLIENT_SECRET:not-configured}
+            scope: openid,profile,email
+          github:
+            client-id: ${GITHUB_CLIENT_ID:not-configured}
+            client-secret: ${GITHUB_CLIENT_SECRET:not-configured}
+            scope: read:user,user:email
+
+app:
+  frontend-url: ${APP_FRONTEND_URL:/} # dev: http://localhost:5173
+  mail-from: ${MAIL_FROM:}
+  resume-request-snapshot-retention-days: ${RESUME_REQUEST_SNAPSHOT_RETENTION_DAYS:30}
+
+server:
+  port: ${PORT:8080}
+  forward-headers-strategy: framework # build https redirect URIs behind Render's proxy
+  servlet:
+    session:
+      cookie:
+        http-only: true
+        same-site: lax
+        secure: ${SESSION_COOKIE_SECURE:false}
+
+management:
+  health:
+    mail:
+      enabled: false
+  endpoints:
+    web:
+      exposure:
+        include: health
