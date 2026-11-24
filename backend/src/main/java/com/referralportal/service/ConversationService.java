@@ -1,0 +1,135 @@
+package com.referralportal.service;
+
+import com.referralportal.repository.ConversationRepository;
+import com.referralportal.user.CurrentUser;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.core.Authentication;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
+import org.springframework.web.server.ResponseStatusException;
+
+import static com.referralportal.dto.ConversationDtos.ConversationView;
+import static com.referralportal.dto.ConversationDtos.MeetRequest;
+import static com.referralportal.dto.ConversationDtos.MessageInput;
+import static com.referralportal.dto.ConversationDtos.MessageView;
+import static com.referralportal.dto.ConversationDtos.ThreadView;
+
+@Service
+public class ConversationService {
+
+    static final int MESSAGE_CAP = 20;
+
+    @Autowired
+    private UserService users;
+    @Autowired
+    private ConversationRepository conversations;
+    @Autowired
+    private TransactionTemplate transactions;
+    @Autowired
+    private RequestBudget budget;
+
+    public List<ConversationView> list(Authentication auth) {
+        CurrentUser user = users.current(auth);
+        return conversations.findForUser(user.id());
+    }
+
+    public ThreadView thread(Authentication auth, long conversationId) {
+        CurrentUser user = users.current(auth);
+        ConversationView conversation = load(conversationId, user.id());
+        List<MessageView> messages = conversations.findMessages(conversationId, user.id());
+        return new ThreadView(conversation, MESSAGE_CAP, messages);
+    }
+
+    public Map<String, Object> send(Authentication auth, long conversationId, MessageInput input) {
+        CurrentUser user = users.current(auth);
+        ConversationView conversation = load(conversationId, user.id());
+        if (!"accepted".equals(conversation.status())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Chat opens after the request is accepted.");
+        }
+        if (conversations.isBlockedPair(user.id(), conversation.otherId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "This chat is not available.");
+        }
+        String body = input.body().trim();
+        if (body.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Write a message first.");
+        }
+        int used = Objects.requireNonNull(transactions.execute(status -> {
+            int updated = conversations.incrementMessageCount(conversationId, MESSAGE_CAP);
+            if (updated != 1) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "This chat has used all " + MESSAGE_CAP + " messages.");
+            }
+            conversations.insertMessage(conversationId, user.id(), body);
+            return conversations.messageCount(conversationId);
+        }));
+        return Map.of("messageCount", used, "messageCap", MESSAGE_CAP);
+    }
+
+    public Map<String, Object> request(Authentication auth, MeetRequest input) {
+        CurrentUser seeker = users.current(auth);
+        if (input.referrerId() == seeker.id()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "You cannot request yourself.");
+        }
+        ConversationRepository.ReferrerTarget target = conversations.findOpenReferrer(input.referrerId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "This person is not open to meet."));
+        if (conversations.hasVerifiedCompany(seeker.id(), target.companyId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "You cannot request a meeting at your own company.");
+        }
+        if (conversations.isBlockedPair(seeker.id(), input.referrerId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "You cannot send a request to this person.");
+        }
+        if (conversations.countAcceptedForReferrer(input.referrerId()) >= target.slotCapacity()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This person is fully booked.");
+        }
+        if (budget.left(seeker.id()) <= 0) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "You have used all " + RequestBudget.REQUESTS_MAX + " meet requests.");
+        }
+        try {
+            long id = Objects.requireNonNull(transactions.execute(status -> {
+                return conversations.createConversation(seeker.id(), input.referrerId(), input.note().trim());
+            }));
+            return Map.of("id", id, "requestsLeft", budget.left(seeker.id()));
+        } catch (DataIntegrityViolationException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "You already have a conversation with this person.");
+        }
+    }
+
+    public Map<String, Object> accept(Authentication auth, long conversationId) {
+        CurrentUser user = users.current(auth);
+        ConversationView conversation = decidable(user, conversationId);
+        if ("seeker".equals(conversation.initiatedBy()) && "referrer".equals(conversation.myRole())) {
+            long used = conversations.countAcceptedForReferrer(user.id());
+            int capacity = conversations.slotCapacity(user.id());
+            if (used >= capacity) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "You are fully booked.");
+            }
+        }
+        conversations.accept(conversationId);
+        return Map.of("status", "accepted");
+    }
+
+    public Map<String, Object> decline(Authentication auth, long conversationId) {
+        CurrentUser user = users.current(auth);
+        decidable(user, conversationId);
+        conversations.decline(conversationId);
+        return Map.of("status", "declined");
+    }
+
+    private ConversationView decidable(CurrentUser user, long conversationId) {
+        ConversationView conversation = load(conversationId, user.id());
+        boolean startedByMe = conversation.initiatedBy().equals(conversation.myRole());
+        if (startedByMe || !"pending".equals(conversation.status())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Nothing to accept or decline here.");
+        }
+        return conversation;
+    }
+
+    private ConversationView load(long conversationId, long userId) {
+        return conversations.findForParticipant(conversationId, userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Conversation not found."));
+    }
+}
