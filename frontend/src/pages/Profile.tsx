@@ -75,7 +75,6 @@ export default function ProfilePage({ me }: { me: Me }) {
     queryFn: () => api<ReferrerSettings>('/api/referrer/settings'),
   })
   const [form, setForm] = useState<ProfileData | null>(null)
-  const [deleteConfirmation, setDeleteConfirmation] = useState('')
   const [workEmail, setWorkEmail] = useState('')
   const [verificationCode, setVerificationCode] = useState('')
   const [codeSent, setCodeSent] = useState(false)
@@ -113,14 +112,6 @@ export default function ProfilePage({ me }: { me: Me }) {
       await qc.invalidateQueries({ queryKey: ['me'] })
       await qc.invalidateQueries({ queryKey: ['profile'] })
       navigate('/companies')
-    },
-  })
-
-  const deleteAccount = useMutation({
-    mutationFn: () => api<void>('/api/me/account', { method: 'DELETE' }),
-    onSuccess: () => {
-      qc.clear()
-      window.location.assign('/')
     },
   })
 
@@ -377,32 +368,6 @@ export default function ProfilePage({ me }: { me: Me }) {
       <Button type="submit" disabled={save.isPending} className="w-full py-3.5 text-base">
         {save.isPending ? 'Saving…' : me.hasProfile ? 'Save changes' : 'Save and continue'}
       </Button>
-
-      <Card className="border-gred/30">
-        <h2 className="font-bold text-gred">Delete account</h2>
-        <p className="mt-1 text-sm text-muted">
-          Permanently delete your profile, conversations, messages, and referral request records. This cannot be undone.
-        </p>
-        <label className="mt-3 block text-sm font-semibold" htmlFor="delete-confirmation">
-          Type DELETE to confirm
-        </label>
-        <input
-          id="delete-confirmation"
-          value={deleteConfirmation}
-          onChange={(event) => setDeleteConfirmation(event.target.value)}
-          autoComplete="off"
-          className="mt-1 w-full rounded-full border border-line bg-white px-4 py-2.5 text-sm outline-none focus:border-gred"
-        />
-        <ErrorNote message={deleteAccount.error?.message ?? null} />
-        <Button
-          variant="danger"
-          disabled={deleteConfirmation !== 'DELETE' || deleteAccount.isPending}
-          onClick={() => deleteAccount.mutate()}
-          className="mt-3"
-        >
-          {deleteAccount.isPending ? 'Deleting…' : 'Delete my account'}
-        </Button>
-      </Card>
     </form>
   )
 }
