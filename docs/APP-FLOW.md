@@ -24,7 +24,7 @@ are relative, and the resulting public URLs remain `/api/...`. `SpaController` k
 unprefixed frontend page routes.
 
 - **`entity/`** — one `@Entity` class per table (`User`, `Profile`, `Company`,
-  `ReferrerProfile`, `OpenRole`, `Wishlist`, `Badge`, `Conversation`, `Message`, `Referral`,
+  `ReferrerProfile`, `OpenRole`, `Badge`, `Conversation`, `Message`, `Referral`,
   `CompanyReferralRequest`, `ReferralRequestResponse`, `ReferralRequestCredit`, `Review`,
   `EmailOtp`, `ResumeFile`, `ReportsBlock`, `CreditLedger`, `Notification`). Each
   maps its table via `@Table`, and FKs are modelled as real object references
@@ -146,8 +146,8 @@ removes expired pending rows.
 **Tables touched:** `profiles` (insert/update). `resume_files` is defined in the schema but is
 not written by the application.
 
-**Business rule enforced here:** wishlist and referral-request limits are enforced by their
-respective company and referral services, not by profile save.
+**Business rule enforced here:** referral-request limits are enforced by the referral service,
+not by profile save.
 
 ---
 
@@ -213,7 +213,7 @@ Runs in one DB transaction (`confirmInTransaction`):
 - `referrer_profiles` has no row (or `verified_at IS NULL`) for them.
 - `GET /api/me` → `isReferrer = false`. The profile shows the work-email verification form;
   referral-request opt-in controls are available only after verification.
-- They can still use seeker features (company directory, wishlist, referral requests, badge,
+- They can still use seeker features (company directory, referral requests, badge,
   and their own referral status) without verifying a work email.
 - They cannot opt in to receive referral requests or respond as a referrer, or change verified
   referrer settings (`PUT /api/referrer/settings` returns `403` until verified).
@@ -222,10 +222,10 @@ Runs in one DB transaction (`confirmInTransaction`):
 
 ---
 
-## 5. Companies list and wishlist
+## 5. Companies list
 
 **Where:** [Companies.tsx](/d:/GDG/Referral-Portal/frontend/src/pages/Companies.tsx) →
-`GET /api/companies`, `PUT/DELETE /api/wishlist/:companyId` →
+`GET /api/companies` →
 [CompanyController.java](/d:/GDG/Referral-Portal/backend/src/main/java/com/referralportal/controller/CompanyController.java) →
 [CompanyService.java](/d:/GDG/Referral-Portal/backend/src/main/java/com/referralportal/service/CompanyService.java) →
 [CompanyRepository.java](/d:/GDG/Referral-Portal/backend/src/main/java/com/referralportal/repository/CompanyRepository.java)
@@ -233,26 +233,11 @@ Runs in one DB transaction (`confirmInTransaction`):
 **Listing (`GET /api/companies`):**
 - Returns companies with at least one verified employee who has opted in to referral requests.
   It excludes the seeker's own verified company and does not return employee names or identities.
-- Returns the seeker's wishlist count (maximum **5**) and separate company-referral request
-  allowance fields: **2 base requests per rolling 30 days while unverified, 5 after work-email
+- Returns the seeker's company-referral request allowance fields: **2 base requests per rolling 30 days while unverified, 5 after work-email
   verification**, plus available earned credits.
-- Marks each company `wishlisted: true/false` based on the caller's own `wishlists` rows.
 
-**Add to wishlist (`PUT /api/wishlist/:companyId`):**
-1. 404 if the company doesn't exist (`CompanyJpaRepository.existsById`).
-2. 409 if the company is the user's own **verified** company
-   (`isVerifiedOwnCompany` — reads the caller's `ReferrerProfile`) → "You cannot wishlist your
-   own company."
-3. If not already wishlisted, checks `countWishlistItems(userId) >= 5` → 409 "wishlist is full".
-4. Otherwise builds a `Wishlist` entity (seeker/company set via `getReferenceById`, not raw
-   ids) and saves it via `WishlistJpaRepository`.
-
-**Remove (`DELETE /api/wishlist/:companyId`):** unconditional
-`WishlistJpaRepository.deleteBySeekerIdAndCompanyId`. Both add and remove operations run in
-`CompanyService` transactions so the derived delete query has an active transaction.
-
-**Tables touched:** `companies`, `open_roles` (read-only), `referrer_profiles` (read-only),
-`wishlists` (insert/delete).
+**Tables touched:** `companies`, `referrer_profiles`, `company_referral_requests`, and
+`referral_request_credits` (all read-only). The legacy `wishlists` table is retained but unused.
 
 ---
 
@@ -357,7 +342,7 @@ integration, candidate search, or resume upload is part of this flow.
   `reviews` (either side), `referrals` (either side), then a bulk `@Modifying` JPQL delete for
   the `users` row itself (`UserJpaRepository.deleteUserById`) — deliberately **not** a plain
   `deleteById()` (load-then-remove), because `User` eagerly loads its `Badge`/`Profile`/
-  `ReferrerProfile`/`ResumeFile` associations, and removing a managed entity with those
+  `ReferrerProfile` associations, and removing a managed entity with those
   loaded can trip a Hibernate flush-ordering check; a direct bulk delete avoids that entirely.
 - Deleting `users` cascades (via `ON DELETE CASCADE` FKs) to `profiles`, `referrer_profiles`,
   `badges`, `wishlists`, `email_otps`, `resume_files`, `credit_ledger`, `notifications`,
@@ -387,7 +372,6 @@ yet (no stats endpoint, company/sponsor management, report queue, or badge/QR bu
 | Resume upload (PDF, stored in DB) | ❌ Not implemented (schema/entity only) |
 | Work-email OTP verification, auto company creation from domain | ✅ Implemented |
 | Companies list with opted-in referrer availability, no employee names | ✅ Implemented |
-| Wishlist (max 5, no self-company) | ✅ Implemented |
 | Company referral requests (one active referrer at a time; seeker can continue after timeout) | ✅ Implemented |
 | Referral accept/decline, active assignment capacity, contact consent | ✅ Implemented |
 | Submission confirmation, capped credits, expiry/refund | ✅ Implemented |

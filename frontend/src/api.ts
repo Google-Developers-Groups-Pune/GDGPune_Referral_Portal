@@ -25,11 +25,8 @@ export type Company = {
   name: string
   domain: string
   sponsor: boolean
-  wishlisted: boolean
 }
 export type Companies = {
-  wishlistCount: number
-  wishlistMax: number
   referralRequestsLeft: number
   referralRequestsMax: number
   referralBonusCredits: number

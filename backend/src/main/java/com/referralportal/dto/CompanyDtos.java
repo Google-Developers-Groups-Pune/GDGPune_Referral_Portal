@@ -6,8 +6,8 @@ public final class CompanyDtos {
 
     private CompanyDtos() {}
 
-    public record CompanyView(long id, String name, String domain, boolean sponsor, boolean wishlisted) {}
+    public record CompanyView(long id, String name, String domain, boolean sponsor) {}
 
-        public record CompaniesResponse(int wishlistCount, int wishlistMax, int referralRequestsLeft,
+        public record CompaniesResponse(int referralRequestsLeft,
             int referralRequestsMax, int referralBonusCredits, List<CompanyView> companies) {}
 }
