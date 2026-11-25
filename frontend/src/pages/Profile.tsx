@@ -79,7 +79,6 @@ export default function ProfilePage({ me }: { me: Me }) {
   const [verificationCode, setVerificationCode] = useState('')
   const [codeSent, setCodeSent] = useState(false)
   const [referralLimit, setReferralLimit] = useState(10)
-  const [referralRolePreferences, setReferralRolePreferences] = useState<string[]>([])
 
   useEffect(() => {
     if (data) setForm(data)
@@ -89,7 +88,6 @@ export default function ProfilePage({ me }: { me: Me }) {
     if (!referrerSettings) return
     setWorkEmail(referrerSettings.workEmail ?? '')
     setReferralLimit(referrerSettings.referralLimit)
-    setReferralRolePreferences(referrerSettings.referralRolePreferences)
   }, [referrerSettings])
 
   const save = useMutation({
@@ -160,7 +158,7 @@ export default function ProfilePage({ me }: { me: Me }) {
         openToMeet: referrerSettings?.openToMeet ?? false,
         slotCapacity: referrerSettings?.slotCapacity ?? 3,
         referralLimit,
-        referralRolePreferences,
+        referralRolePreferences: referrerSettings?.referralRolePreferences ?? [],
       },
     }),
     onSuccess: async () => {
@@ -301,11 +299,6 @@ export default function ProfilePage({ me }: { me: Me }) {
             <Chip tone={3}>Verified</Chip>
           </div>
           <p className="mt-4 text-sm text-muted">You’ll receive referral requests from seekers applying to {referrerSettings.companyName}.</p>
-          <div className="mt-4">
-            <p className="mb-2 text-sm font-semibold">Areas you can help with <span className="font-normal text-muted">(optional)</span></p>
-            <ChipPicker options={LOOKING_FOR} value={referralRolePreferences} onChange={setReferralRolePreferences} max={10} />
-            <p className="mt-1 text-xs text-muted">Requests go to all verified referrers at your company; these preferences help you assess fit.</p>
-          </div>
           <label className="mt-3 block text-sm font-semibold" htmlFor="referral-limit">Maximum active referral assignments</label>
           <input id="referral-limit" type="number" min={1} max={10} value={referralLimit} onChange={(event) => setReferralLimit(Number(event.target.value))} className="mt-1 w-full rounded-full border border-line bg-white px-4 py-2.5 text-sm outline-none focus:border-ggreen" />
           <p className="mt-1 text-xs text-muted">Accepted assignments count until you submit them or they close.</p>
