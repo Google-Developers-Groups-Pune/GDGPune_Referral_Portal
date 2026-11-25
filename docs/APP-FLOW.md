@@ -334,6 +334,9 @@ integration, candidate search, or resume upload is part of this flow.
 
 ## 9. Account deletion
 
+The profile page does not offer account deletion. The backend endpoint is retained so the UI can be
+added back later.
+
 **Where:** `DELETE /api/me/account` → [AccountController.java](/d:/GDG/Referral-Portal/backend/src/main/java/com/referralportal/controller/AccountController.java) →
 [AccountService.java](/d:/GDG/Referral-Portal/backend/src/main/java/com/referralportal/service/AccountService.java) →
 [UserRepository.java](/d:/GDG/Referral-Portal/backend/src/main/java/com/referralportal/repository/UserRepository.java)

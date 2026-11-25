@@ -75,12 +75,10 @@ export default function ProfilePage({ me }: { me: Me }) {
     queryFn: () => api<ReferrerSettings>('/api/referrer/settings'),
   })
   const [form, setForm] = useState<ProfileData | null>(null)
-  const [deleteConfirmation, setDeleteConfirmation] = useState('')
   const [workEmail, setWorkEmail] = useState('')
   const [verificationCode, setVerificationCode] = useState('')
   const [codeSent, setCodeSent] = useState(false)
   const [referralLimit, setReferralLimit] = useState(10)
-  const [referralRolePreferences, setReferralRolePreferences] = useState<string[]>([])
 
   useEffect(() => {
     if (data) setForm(data)
@@ -90,7 +88,6 @@ export default function ProfilePage({ me }: { me: Me }) {
     if (!referrerSettings) return
     setWorkEmail(referrerSettings.workEmail ?? '')
     setReferralLimit(referrerSettings.referralLimit)
-    setReferralRolePreferences(referrerSettings.referralRolePreferences)
   }, [referrerSettings])
 
   const save = useMutation({
@@ -113,14 +110,6 @@ export default function ProfilePage({ me }: { me: Me }) {
       await qc.invalidateQueries({ queryKey: ['me'] })
       await qc.invalidateQueries({ queryKey: ['profile'] })
       navigate('/companies')
-    },
-  })
-
-  const deleteAccount = useMutation({
-    mutationFn: () => api<void>('/api/me/account', { method: 'DELETE' }),
-    onSuccess: () => {
-      qc.clear()
-      window.location.assign('/')
     },
   })
 
@@ -169,7 +158,7 @@ export default function ProfilePage({ me }: { me: Me }) {
         openToMeet: referrerSettings?.openToMeet ?? false,
         slotCapacity: referrerSettings?.slotCapacity ?? 3,
         referralLimit,
-        referralRolePreferences,
+        referralRolePreferences: referrerSettings?.referralRolePreferences ?? [],
       },
     }),
     onSuccess: async () => {
@@ -310,11 +299,6 @@ export default function ProfilePage({ me }: { me: Me }) {
             <Chip tone={3}>Verified</Chip>
           </div>
           <p className="mt-4 text-sm text-muted">You’ll receive referral requests from seekers applying to {referrerSettings.companyName}.</p>
-          <div className="mt-4">
-            <p className="mb-2 text-sm font-semibold">Areas you can help with <span className="font-normal text-muted">(optional)</span></p>
-            <ChipPicker options={LOOKING_FOR} value={referralRolePreferences} onChange={setReferralRolePreferences} max={10} />
-            <p className="mt-1 text-xs text-muted">Requests go to all verified referrers at your company; these preferences help you assess fit.</p>
-          </div>
           <label className="mt-3 block text-sm font-semibold" htmlFor="referral-limit">Maximum active referral assignments</label>
           <input id="referral-limit" type="number" min={1} max={10} value={referralLimit} onChange={(event) => setReferralLimit(Number(event.target.value))} className="mt-1 w-full rounded-full border border-line bg-white px-4 py-2.5 text-sm outline-none focus:border-ggreen" />
           <p className="mt-1 text-xs text-muted">Accepted assignments count until you submit them or they close.</p>
@@ -377,32 +361,6 @@ export default function ProfilePage({ me }: { me: Me }) {
       <Button type="submit" disabled={save.isPending} className="w-full py-3.5 text-base">
         {save.isPending ? 'Saving…' : me.hasProfile ? 'Save changes' : 'Save and continue'}
       </Button>
-
-      <Card className="border-gred/30">
-        <h2 className="font-bold text-gred">Delete account</h2>
-        <p className="mt-1 text-sm text-muted">
-          Permanently delete your profile, conversations, messages, and referral request records. This cannot be undone.
-        </p>
-        <label className="mt-3 block text-sm font-semibold" htmlFor="delete-confirmation">
-          Type DELETE to confirm
-        </label>
-        <input
-          id="delete-confirmation"
-          value={deleteConfirmation}
-          onChange={(event) => setDeleteConfirmation(event.target.value)}
-          autoComplete="off"
-          className="mt-1 w-full rounded-full border border-line bg-white px-4 py-2.5 text-sm outline-none focus:border-gred"
-        />
-        <ErrorNote message={deleteAccount.error?.message ?? null} />
-        <Button
-          variant="danger"
-          disabled={deleteConfirmation !== 'DELETE' || deleteAccount.isPending}
-          onClick={() => deleteAccount.mutate()}
-          className="mt-3"
-        >
-          {deleteAccount.isPending ? 'Deleting…' : 'Delete my account'}
-        </Button>
-      </Card>
     </form>
   )
 }
