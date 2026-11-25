@@ -342,7 +342,7 @@ integration, candidate search, or resume upload is part of this flow.
   `reviews` (either side), `referrals` (either side), then a bulk `@Modifying` JPQL delete for
   the `users` row itself (`UserJpaRepository.deleteUserById`) — deliberately **not** a plain
   `deleteById()` (load-then-remove), because `User` eagerly loads its `Badge`/`Profile`/
-  `ReferrerProfile`/`ResumeFile` associations, and removing a managed entity with those
+  `ReferrerProfile` associations, and removing a managed entity with those
   loaded can trip a Hibernate flush-ordering check; a direct bulk delete avoids that entirely.
 - Deleting `users` cascades (via `ON DELETE CASCADE` FKs) to `profiles`, `referrer_profiles`,
   `badges`, `wishlists`, `email_otps`, `resume_files`, `credit_ledger`, `notifications`,
