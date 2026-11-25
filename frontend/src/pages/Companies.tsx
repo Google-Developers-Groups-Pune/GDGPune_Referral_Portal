@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowRight, Heart } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api, type Companies, type Company, type Profile } from '../api'
@@ -125,13 +125,8 @@ function ReferralRequestSheet({ company, requestsLeft, onClose }: {
 }
 
 export default function CompaniesPage() {
-  const qc = useQueryClient()
   const { data, isPending, isError } = useQuery({ queryKey: ['companies'], queryFn: () => api<Companies>('/api/companies') })
   const [target, setTarget] = useState<Company | null>(null)
-  const toggle = useMutation({
-    mutationFn: (company: Company) => api(`/api/wishlist/${company.id}`, { method: company.wishlisted ? 'DELETE' : 'PUT' }),
-    onSettled: () => qc.invalidateQueries({ queryKey: ['companies'] }),
-  })
 
   if (isPending) return <Spinner />
   if (isError || !data) return <ErrorNote message="Could not load companies." />
@@ -140,12 +135,10 @@ export default function CompaniesPage() {
     <div>
       <PageTitle title="Companies" subtitle="Ask for help from verified referrers at their companies." />
       <div className="mb-4 flex flex-wrap gap-2">
-        <Chip tone={0}>Wishlist {data.wishlistCount} of {data.wishlistMax}</Chip>
         <Chip tone={2}>{data.referralRequestsLeft} referral requests left</Chip>
         <Chip tone={1}>{data.referralRequestsMax} base per 30 days</Chip>
         {data.referralBonusCredits > 0 && <Chip tone={3}>{data.referralBonusCredits} bonus {data.referralBonusCredits === 1 ? 'credit' : 'credits'}</Chip>}
       </div>
-      <ErrorNote message={toggle.error?.message ?? null} />
       {data.companies.length === 0 ? (
         <EmptyState title="No companies have verified referrers yet" text="Check back when more employees verify their work email." />
       ) : (
@@ -158,14 +151,6 @@ export default function CompaniesPage() {
                 <p className="truncate text-xs text-muted">{company.domain}</p>
                 {company.sponsor && <span className="mt-1 inline-block rounded-full bg-gyellow/25 px-2 py-0.5 text-xs font-semibold text-yellow-700">Sponsor</span>}
               </div>
-              <button
-                type="button"
-                onClick={() => toggle.mutate(company)}
-                aria-label={company.wishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
-                className={`rounded-full p-2 transition ${company.wishlisted ? 'bg-gred/10 text-gred' : 'bg-line/60 text-muted hover:text-gred'}`}
-              >
-                <Heart size={18} fill={company.wishlisted ? 'currentColor' : 'none'} />
-              </button>
               <Button onClick={() => setTarget(company)} disabled={data.referralRequestsLeft === 0} className="flex shrink-0 items-center gap-2 px-3">
                 <span>Request</span><ArrowRight size={16} />
               </Button>

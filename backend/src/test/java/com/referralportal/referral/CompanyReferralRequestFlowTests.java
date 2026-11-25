@@ -66,9 +66,6 @@ class CompanyReferralRequestFlowTests {
         private Validator validator;
 
         @Autowired
-        private CompanyService companyService;
-
-        @Autowired
         private CompanyService companies;
 
         @Autowired
@@ -508,7 +505,7 @@ class CompanyReferralRequestFlowTests {
                 assertTrue(directory.companies().stream().anyMatch(company -> company.id() == firstCompanyId));
                 assertTrue(directory.companies().stream().anyMatch(company -> company.id() == secondCompanyId));
                 assertTrue(directory.companies().stream().noneMatch(company -> company.id() == unverifiedCompanyId));
-                assertEquals(5, directory.companies().getFirst().getClass().getRecordComponents().length);
+                assertEquals(4, directory.companies().getFirst().getClass().getRecordComponents().length);
                 assertEquals(2, directory.referralRequestsMax());
                 assertEquals(2, directory.referralRequestsLeft());
                 assertEquals(0, directory.referralBonusCredits());
@@ -564,25 +561,6 @@ class CompanyReferralRequestFlowTests {
             jdbc.sql("DELETE FROM companies WHERE id = ?").param(companyId).update();
         }
     }
-
-        @Test
-        @Transactional(propagation = Propagation.NOT_SUPPORTED)
-        void wishlistInsertAndRemovalWorkWithCompositeKey() {
-                String suffix = UUID.randomUUID().toString().replace("-", "");
-                String seekerEmail = "wishlist-seeker-" + suffix + "@example.test";
-                long seekerId = insertUser("Wishlist Seeker", seekerEmail);
-                long companyId = insertCompany(suffix);
-
-                try {
-                        assertEquals(Boolean.TRUE, companyService.addToWishlist(authentication(seekerEmail, "Wishlist Seeker"), companyId).get("wishlisted"));
-                        assertEquals(1, count("wishlists", "seeker_id = ? AND company_id = ?", seekerId, companyId));
-                        assertEquals(Boolean.FALSE, companyService.removeFromWishlist(authentication(seekerEmail, "Wishlist Seeker"), companyId).get("wishlisted"));
-                        assertEquals(0, count("wishlists", "seeker_id = ? AND company_id = ?", seekerId, companyId));
-                } finally {
-                        jdbc.sql("DELETE FROM users WHERE id = ?").param(seekerId).update();
-                        jdbc.sql("DELETE FROM companies WHERE id = ?").param(companyId).update();
-                }
-        }
 
     @Test
     void expiresUnacceptedRequestAndRefundsItsAllowance() {

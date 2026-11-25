@@ -36,7 +36,7 @@ class ApiControllerRouteTests {
         assertTrue(paths.contains("/api/me/badge"));
         assertTrue(paths.contains("/api/me/profile"));
         assertTrue(paths.contains("/api/companies"));
-        assertTrue(paths.contains("/api/wishlist/{companyId}"));
+        assertFalse(paths.contains("/api/wishlist/{companyId}"));
         assertTrue(paths.contains("/api/conversations"));
         assertTrue(paths.contains("/api/referrals"));
         assertTrue(paths.contains("/api/referrer/settings"));

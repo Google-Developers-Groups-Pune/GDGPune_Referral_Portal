@@ -138,8 +138,6 @@ erDiagram
     USERS ||--o| REFERRER_PROFILES : "may be"
     COMPANIES ||--o{ REFERRER_PROFILES : employs
     COMPANIES ||--o{ OPEN_ROLES : lists
-    USERS ||--o{ WISHLISTS : saves
-    COMPANIES ||--o{ WISHLISTS : saved_by
     USERS ||--o{ COMPANY_REFERRAL_REQUESTS : creates
     COMPANIES ||--o{ COMPANY_REFERRAL_REQUESTS : receives
     COMPANY_REFERRAL_REQUESTS ||--o| REFERRAL_REQUEST_RESUMES : snapshots
@@ -199,10 +197,6 @@ erDiagram
         bigint user_id FK
         bigint source_response_id FK
         datetime expires_at
-    }
-    WISHLISTS {
-        bigint seeker_id PK,FK
-        bigint company_id PK,FK
     }
     OPEN_ROLES {
         bigint id PK
