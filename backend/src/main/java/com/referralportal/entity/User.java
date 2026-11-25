@@ -51,9 +51,6 @@ public class User {
     @OneToOne(mappedBy = "user")
     private Badge badge;
 
-    @OneToOne(mappedBy = "user")
-    private ResumeFile resumeFile;
-
     public Long getId() {
         return id;
     }
@@ -128,9 +125,5 @@ public class User {
 
     public Badge getBadge() {
         return badge;
-    }
-
-    public ResumeFile getResumeFile() {
-        return resumeFile;
     }
 }

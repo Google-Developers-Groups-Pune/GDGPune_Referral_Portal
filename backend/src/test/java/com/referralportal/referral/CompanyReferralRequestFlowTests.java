@@ -21,9 +21,15 @@ import jakarta.validation.Validator;
 import jakarta.persistence.EntityManager;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -507,6 +513,57 @@ class CompanyReferralRequestFlowTests {
                 assertEquals(2, directory.referralRequestsLeft());
                 assertEquals(0, directory.referralBonusCredits());
         }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void concurrentDuplicateRequestsCreateOnlyOne() throws Exception {
+        assertConcurrentCreates(1, List.of("Engineer", "Engineer", "Engineer", "Engineer", "Engineer", "Engineer"));
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void concurrentRequestsCannotExceedBudget() throws Exception {
+        assertConcurrentCreates(ReferralRequestBudget.UNVERIFIED_BASE_MAX,
+                List.of("Role 1", "Role 2", "Role 3", "Role 4", "Role 5", "Role 6"));
+    }
+
+    private void assertConcurrentCreates(int expected, List<String> roles) throws Exception {
+        String suffix = UUID.randomUUID().toString().replace("-", "");
+        String seekerEmail = "request-race-" + suffix + "@example.test";
+        long seekerId = insertUser("Race Seeker", seekerEmail);
+        long referrerId = insertUser("Race Referrer", "race-referrer-" + suffix + "@example.test");
+        long companyId = insertCompany(suffix);
+        try (ExecutorService executor = Executors.newFixedThreadPool(roles.size())) {
+            insertProfile(seekerId, "+1 555 010 1234");
+            insertReferrer(referrerId, companyId, "race-work-" + suffix + "@company.test");
+            CyclicBarrier start = new CyclicBarrier(roles.size());
+            List<Future<Boolean>> creations = new ArrayList<>();
+            for (String role : roles) {
+                creations.add(executor.submit(() -> {
+                    start.await(10, TimeUnit.SECONDS);
+                    try {
+                        requests.create(authentication(seekerEmail, "Race Seeker"),
+                                new CreateRequest(companyId, role, "https://jobs.example.test/role", null, true, false));
+                        return true;
+                    } catch (ResponseStatusException e) {
+                        assertEquals(HttpStatus.CONFLICT, e.getStatusCode());
+                        return false;
+                    }
+                }));
+            }
+            int created = 0;
+            for (Future<Boolean> creation : creations) {
+                if (creation.get(30, TimeUnit.SECONDS)) {
+                    created++;
+                }
+            }
+            assertEquals(expected, created);
+            assertEquals(expected, count("company_referral_requests", "seeker_id = ?", seekerId));
+        } finally {
+            jdbc.sql("DELETE FROM users WHERE id IN (?, ?)").params(seekerId, referrerId).update();
+            jdbc.sql("DELETE FROM companies WHERE id = ?").param(companyId).update();
+        }
+    }
 
         @Test
         @Transactional(propagation = Propagation.NOT_SUPPORTED)

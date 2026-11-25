@@ -23,7 +23,7 @@ public interface UserJpaRepository extends JpaRepository<User, Long> {
     /**
      * Bulk-deletes the user row directly via JPQL instead of load-then-remove. This avoids
      * Hibernate eagerly loading the user's one-to-one associations (badge, profile,
-     * referrer profile, resume file) into the persistence context before deletion, which can
+     * referrer profile) into the persistence context before deletion, which can
      * trip Hibernate's transient-reference checks on an otherwise unrelated flush.
      */
     @Modifying

@@ -35,6 +35,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -79,7 +80,12 @@ public class CompanyReferralRequestService {
     @Autowired
     private ReferralRequestResumeJpaRepository requestResumes;
 
-    @Transactional
+    /**
+     * Creations serialize on the seeker's user row. READ_COMMITTED is required as well: resolving
+     * the current user may read first, and under REPEATABLE_READ the duplicate and budget checks
+     * after the lock would still use that older snapshot.
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public SeekerRequest create(Authentication authentication, CreateRequest input) {
         CurrentUser current = users.current(authentication);
         Instant now = Instant.now();
