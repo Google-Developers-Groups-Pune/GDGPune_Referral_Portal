@@ -28,9 +28,6 @@ public interface ReferralRequestResponseJpaRepository extends JpaRepository<Refe
         @Query("select rr from ReferralRequestResponse rr where rr.id = :responseId")
         Optional<ReferralRequestResponse> findByIdForUpdate(@Param("responseId") long responseId);
 
-    @Query("select count(rr) from ReferralRequestResponse rr where rr.referrer.id = :referrerId "
-            + "and rr.status = 'accepted' and rr.submittedAt is null")
-    long countActiveAssignments(@Param("referrerId") long referrerId);
 
     @Query("select count(rr) from ReferralRequestResponse rr where rr.referrer.id = :referrerId "
             + "and rr.confirmedAt is not null and rr.confirmedAt >= :since")

@@ -1,18 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell } from 'lucide-react'
+import { Bell, BellRing } from 'lucide-react'
+import { AnimatePresence } from 'motion/react'
+import * as m from 'motion/react-m'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import {
-  fetchNotifications,
-  fetchUnreadCount,
-  markAllNotificationsRead,
-  markNotificationRead,
-  type AppNotification,
-} from './api'
+import { toast } from 'sonner'
+import { markAllNotificationsRead, markNotificationRead, type AppNotification } from './api'
+import { failure, haptic } from './feedback'
+import { notificationsQuery, unreadQuery } from './queries'
 import { Spinner } from './ui'
-
-const unreadKey = ['notifications', 'unread-count']
-const listKey = ['notifications', 'list']
 
 function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null
@@ -61,47 +57,76 @@ export default function NotificationBell() {
   const navigate = useNavigate()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const lastUnread = useRef<number | null>(null)
 
-  const { data: unread = 0 } = useQuery({
-    queryKey: unreadKey,
-    queryFn: fetchUnreadCount,
-    refetchInterval: 30000,
-  })
+  const { data: unread } = useQuery({ ...unreadQuery, refetchInterval: 30_000 })
+  const { data: items, isPending, isError, refetch } = useQuery({ ...notificationsQuery, enabled: open })
+  const count = unread ?? 0
 
-  const { data: items, isPending } = useQuery({
-    queryKey: listKey,
-    queryFn: fetchNotifications,
-    enabled: open,
-  })
+  useEffect(() => {
+    if (unread === undefined) return
+    const before = lastUnread.current
+    lastUnread.current = unread
+    if (before === null || unread <= before) return
+    void qc.invalidateQueries({ queryKey: notificationsQuery.queryKey })
+    void qc.invalidateQueries({ queryKey: ['seeker-referral-requests'] })
+    void qc.invalidateQueries({ queryKey: ['referral-request-inbox'] })
+    haptic([10, 50, 10])
+    toast('You have a new update', {
+      id: 'new-update',
+      icon: <BellRing size={18} className="text-primary" />,
+      action: { label: 'See it', onClick: () => void navigate('/referrals') },
+    })
+  }, [unread, qc, navigate])
 
   useEffect(() => {
     if (!open) return
-    const onPointer = (e: MouseEvent) => {
+    const onPointer = (e: PointerEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false)
     }
-    document.addEventListener('mousedown', onPointer)
+    document.addEventListener('pointerdown', onPointer)
     document.addEventListener('keydown', onKey)
     return () => {
-      document.removeEventListener('mousedown', onPointer)
+      document.removeEventListener('pointerdown', onPointer)
       document.removeEventListener('keydown', onKey)
     }
   }, [open])
 
-  const refresh = () => {
-    qc.invalidateQueries({ queryKey: unreadKey })
-    qc.invalidateQueries({ queryKey: listKey })
+  // Read state changes on screen at once; the server call follows and any failure is re-synced.
+  const markLocally = async (matches: (n: AppNotification) => boolean) => {
+    await qc.cancelQueries({ queryKey: ['notifications'] })
+    let cleared = 0
+    qc.setQueryData(notificationsQuery.queryKey, (list) =>
+      list?.map((n) => {
+        if (n.read || !matches(n)) return n
+        cleared++
+        return { ...n, read: true }
+      }),
+    )
+    qc.setQueryData(unreadQuery.queryKey, (n) => Math.max(0, (n ?? 0) - cleared))
   }
+  const resync = () => qc.invalidateQueries({ queryKey: ['notifications'] })
 
-  const readOne = useMutation({ mutationFn: markNotificationRead, onSuccess: refresh })
-  const readAll = useMutation({ mutationFn: markAllNotificationsRead, onSuccess: refresh })
+  const readOne = useMutation({
+    mutationFn: markNotificationRead,
+    onMutate: (id) => markLocally((n) => n.id === id),
+    onSettled: resync,
+  })
+  const readAll = useMutation({
+    mutationFn: markAllNotificationsRead,
+    onMutate: () => markLocally(() => true),
+    onError: failure,
+    onSettled: resync,
+  })
 
   const openItem = (n: AppNotification) => {
+    haptic()
     if (!n.read) readOne.mutate(n.id)
     setOpen(false)
-    navigate('/referrals')
+    void navigate('/referrals')
   }
 
   const hasUnread = Boolean(items?.some((n) => !n.read))
@@ -110,63 +135,74 @@ export default function NotificationBell() {
     <div className="relative" ref={ref}>
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-label={unread > 0 ? `Notifications, ${unread} unread` : 'Notifications'}
+        onClick={() => {
+          haptic()
+          setOpen((v) => !v)
+        }}
+        aria-label={count > 0 ? `Notifications, ${count} unread` : 'Notifications'}
         aria-expanded={open}
-        className="relative rounded-full p-2 text-muted hover:bg-line/60"
+        className={`press relative inline-flex h-10 w-10 items-center justify-center rounded-full hover:bg-line/60 hover:text-ink ${open ? 'bg-line/60 text-ink' : 'text-muted'}`}
       >
-        <Bell size={18} />
-        {unread > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-gred px-1 text-[0.65rem] font-bold leading-4 text-white">
-            {unread > 9 ? '9+' : unread}
+        <m.span key={count} animate={count > 0 ? { rotate: [0, 16, -13, 9, -5, 0] } : undefined} transition={{ duration: 0.6 }} className="inline-flex origin-top">
+          <Bell size={19} aria-hidden />
+        </m.span>
+        {count > 0 && (
+          <span className="absolute right-0.5 top-0.5 inline-flex min-w-[1.1rem] items-center justify-center rounded-full bg-danger-fill px-1 text-[0.65rem] font-bold leading-[1.1rem] text-white">
+            {count > 9 ? '9+' : count}
           </span>
         )}
       </button>
 
-      {open && (
-        <div className="absolute right-0 z-20 mt-2 w-80 max-w-[90vw] overflow-hidden rounded-3xl border border-line bg-white shadow-[0_8px_30px_rgba(60,64,67,0.18)]">
-          <div className="flex items-center justify-between border-b border-line px-4 py-3">
-            <span className="text-sm font-bold">Notifications</span>
-            {hasUnread && (
-              <button
-                type="button"
-                onClick={() => readAll.mutate()}
-                disabled={readAll.isPending}
-                className="text-xs font-semibold text-gblue hover:underline disabled:opacity-50"
-              >
-                Mark all read
-              </button>
-            )}
-          </div>
-          <div className="max-h-96 overflow-y-auto">
-            {isPending ? (
-              <Spinner />
-            ) : !items || items.length === 0 ? (
-              <p className="px-4 py-8 text-center text-sm text-muted">You&apos;re all caught up.</p>
-            ) : (
-              <ul>
-                {items.map((n) => (
-                  <li key={n.id}>
-                    <button
-                      type="button"
-                      onClick={() => openItem(n)}
-                      className={`flex w-full items-start gap-3 px-4 py-3 text-left transition hover:bg-line/40 ${n.read ? '' : 'bg-gblue/5'}`}
-                    >
-                      <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${n.read ? 'bg-transparent' : 'bg-gblue'}`} />
-                      <span className="min-w-0 flex-1">
-                        <span className={`block text-sm ${n.read ? 'text-muted' : 'font-semibold text-ink'}`}>
-                          {describe(n)}
+      <AnimatePresence>
+        {open && (
+          <m.div
+            initial={{ opacity: 0, scale: 0.94, y: -6 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.96, y: -4, transition: { duration: 0.12 } }}
+            transition={{ type: 'spring', stiffness: 520, damping: 34 }}
+            className="fixed inset-x-4 top-[calc(4rem+env(safe-area-inset-top))] z-40 origin-top-right overflow-hidden rounded-3xl glass glass-dense sm:absolute sm:inset-x-auto sm:right-0 sm:top-12 sm:w-96"
+          >
+            <div className="flex min-h-12 items-center justify-between border-b border-line px-4">
+              <span className="text-sm font-bold">Notifications</span>
+              {hasUnread && (
+                <button type="button" onClick={() => readAll.mutate()} className="press rounded-full px-3 py-2 text-xs font-semibold text-primary hover:bg-gblue/10">
+                  Mark all read
+                </button>
+              )}
+            </div>
+            <div className="max-h-[min(24rem,65dvh)] overflow-y-auto overscroll-contain">
+              {isError ? (
+                <button type="button" onClick={() => void refetch()} className="w-full px-4 py-8 text-center text-sm font-semibold text-primary">Could not load. Tap to try again.</button>
+              ) : isPending ? (
+                <Spinner />
+              ) : !items || items.length === 0 ? (
+                <div className="px-4 py-10 text-center text-sm text-muted">
+                  <Bell size={26} className="mx-auto mb-2 opacity-60" aria-hidden />
+                  You&apos;re all caught up.
+                </div>
+              ) : (
+                <ul>
+                  {items.map((n) => (
+                    <li key={n.id}>
+                      <button
+                        type="button"
+                        onClick={() => openItem(n)}
+                        className={`flex w-full items-start gap-3 px-4 py-3.5 text-left transition-colors hover:bg-line/40 active:bg-line/60 ${n.read ? '' : 'bg-gblue/7'}`}
+                      >
+                        <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full transition-colors ${n.read ? 'bg-transparent' : 'bg-gblue'}`} />
+                        <span className="min-w-0 flex-1">
+                          <span className={`block text-sm ${n.read ? 'text-muted' : 'font-semibold text-ink'}`}>{describe(n)}</span>
+                          <span className="mt-0.5 block text-xs text-muted">{timeAgo(n.createdAt)}</span>
                         </span>
-                        <span className="mt-0.5 block text-xs text-muted">{timeAgo(n.createdAt)}</span>
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
-      )}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </m.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
