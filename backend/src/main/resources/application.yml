@@ -46,6 +46,7 @@ spring:
 
 app:
   frontend-url: ${APP_FRONTEND_URL:/} # dev: http://localhost:5173
+  firebase-hosting: ${APP_FIREBASE_HOSTING:false}
   mail-from: ${MAIL_FROM:}
   resume-request-snapshot-retention-days: ${RESUME_REQUEST_SNAPSHOT_RETENTION_DAYS:30}
 

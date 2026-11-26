@@ -52,6 +52,21 @@ application serves both the SPA and API. Database URLs and
 credentials, OAuth client credentials, and SMTP settings are environment configuration,
 not source-controlled values.
 
+Firebase Hosting can proxy the existing Cloud Run service when a custom domain is configured.
+Set `APP_FIREBASE_HOSTING=true` only when enabling that integration: the Cloud Run session
+cookie becomes `__session`, and CSRF tokens are stored in the session while remaining
+available to the SPA through its existing `XSRF-TOKEN` cookie. Firebase forwards only the
+`__session` cookie. Enabling or disabling this setting changes the session cookie name,
+so existing users must sign in again. Configure and test the Firebase rewrite, DNS, OAuth
+callback URLs, and `APP_FRONTEND_URL` before directing users to the custom domain.
+Firebase's Cloud Run rewrite can expose a Cloud Run hostname to the backend when constructing
+OAuth redirects. Set `SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_REDIRECT_URI` and
+`SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GITHUB_REDIRECT_URI` to the corresponding
+`https://<frontend-domain>/login/oauth2/code/google` and `/github` callback URLs, and
+authorize them with the providers. Set `APP_FRONTEND_URL` to that same frontend origin for
+login redirects and notification links. Test both providers before switching the domain;
+the availability of multiple callback URLs depends on each provider's configuration.
+
 ## Backend structure
 
 ```mermaid
