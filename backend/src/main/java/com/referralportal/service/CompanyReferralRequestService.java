@@ -210,9 +210,6 @@ public class CompanyReferralRequestService {
         if (Boolean.TRUE.equals(input.shareReferrerPhone()) && blank(referrerPhone)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Add a phone number to your profile before sharing it.");
         }
-        if (responses.countActiveAssignments(current.id()) >= referrer.getReferralLimit()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "You have reached your active referral assignment limit.");
-        }
         if (referrals.existsByReferrerIdAndCandidateIdAndCompanyId(current.id(), request.getSeeker().getId(), request.getCompany().getId())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "You have already referred this person at your company.");
         }

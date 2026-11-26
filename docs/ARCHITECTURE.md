@@ -127,7 +127,7 @@ sequenceDiagram
 Each referral request is for one company and role; it creates a response for each verified
 referrer at that company. Referral acceptance and submission are tracked in the portal, but the
 portal does not submit a candidate to the employer's hiring system. Request allowance,
-work-email verification, assignment capacity, and per-request contact-sharing
+work-email verification, and per-request contact-sharing
 consent are enforced by backend services.
 
 ## Data domains

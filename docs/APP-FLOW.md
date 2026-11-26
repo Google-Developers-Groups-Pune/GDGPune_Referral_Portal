@@ -197,14 +197,15 @@ Runs in one DB transaction (`confirmInTransaction`):
      defaults `openToMeet=false`, `slotCapacity=3`, `referralLimit=10`, and saves it.
    - Deletes all OTPs for the user (cleanup).
 7. Returns the referrer `Settings` (verified, work email, company name, meeting availability,
-   referral-request opt-in, role preferences, and assignment limit) so the UI can show the
+   referral-request opt-in, role preferences, and the unused `referralLimit` field) so the UI can show the
    "Referrer at {Company}" chip and settings form.
 
 ### 3c. Update referrer settings (`PUT /api/referrer/settings`)
 - Requires `verified_at IS NOT NULL` first (`403 Verify your work email first.`).
 - Lets the referrer toggle the legacy `open_to_meet` setting and the separate
   `accepts_referral_requests` opt-in, set role preferences, and adjust the legacy
-  `slot_capacity` plus active referral `referral_limit` (1–10).
+  `slot_capacity`. The API still accepts and returns `referral_limit` (1–10) for compatibility,
+  but nothing enforces it and the profile page no longer shows it.
 
 **Tables touched:** `email_otps` (insert/update/delete), `companies` (insert-if-absent),
 `referrer_profiles` (insert/update).
@@ -268,7 +269,7 @@ requests use a separate request/response lifecycle.
 - Employees see the seeker name and the profile fields the seeker consented to share, but no
   contact fields before acceptance. Each employee can accept or decline independently; several
   employees may accept one request.
-- Accepting requires remaining active-assignment capacity (`referral_limit`, 1–10). The
+- A referrer can hold any number of accepted assignments at once; there is no capacity limit. The
   employee separately chooses whether to share their verified work email and profile phone.
   Each participant sees only the contact fields the other participant chose to share.
 - Declines are shown as an anonymous count to the seeker; the directory never exposes employee
@@ -282,7 +283,7 @@ requests use a separate request/response lifecycle.
   referrer one bonus request credit, at most two credits per rolling 30 days. Credits expire
   after 90 days. This referral allowance is separate from the legacy meeting budget.
 - Accepted but unsubmitted assignments trigger work-email reminders at 24, 48, and 72 hours, then
-  close at 96 hours and release the referrer's active-assignment capacity. If other verified
+  close at 96 hours. If other verified
   referrers remain, the seeker can continue the request within four days; otherwise, or if the
   seeker does not continue, the request expires and its credit is returned.
 
@@ -376,7 +377,7 @@ yet (no stats endpoint, company/sponsor management, report queue, or badge/QR bu
 | Work-email OTP verification, auto company creation from domain | ✅ Implemented |
 | Companies list with opted-in referrer availability, no employee names | ✅ Implemented |
 | Company referral requests (one active referrer at a time; seeker can continue after timeout) | ✅ Implemented |
-| Referral accept/decline, active assignment capacity, contact consent | ✅ Implemented |
+| Referral accept/decline (no assignment limit), contact consent | ✅ Implemented |
 | Submission confirmation, capped credits, expiry/refund | ✅ Implemented |
 | In-app invitation notifications and capped email reminders | ✅ Implemented |
 | Legacy meet/chat UI | Hidden; backend APIs/data retained |

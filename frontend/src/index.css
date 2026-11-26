@@ -1,35 +1,73 @@
-@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap");
+@import "@fontsource/poppins/latin-400.css";
+@import "@fontsource/poppins/latin-500.css";
+@import "@fontsource/poppins/latin-600.css";
+@import "@fontsource/poppins/latin-700.css";
+@import "@fontsource/poppins/latin-800.css";
 @import "tailwindcss";
 
-/* Google's four brand colors, as used by Google Developer Groups. */
+/*
+ * Google's four brand colors, as used by Google Developer Groups.
+ * g* are decorative fills; primary/success/danger/warn are the readable (AA contrast) text tones,
+ * and *-fill are solid backgrounds that carry white text.
+ */
 @theme {
   --font-sans: "Poppins", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --color-gblue: #4285f4;
   --color-gred: #ea4335;
   --color-gyellow: #fbbc04;
   --color-ggreen: #34a853;
-  --color-seeker: #4285f4;
-  --color-seeker-soft: #e8f0fe;
-  --color-referrer: #34a853;
+  --color-primary: #1967d2;
+  --color-primary-fill: #1a73e8;
+  --color-success: #137333;
+  --color-success-fill: #188038;
+  --color-danger: #c5221f;
+  --color-danger-fill: #d93025;
+  --color-warn: #8a5a00;
+  --color-surface: #ffffff;
+  --color-raised: #ffffff;
+  --color-referrer: #137333;
   --color-referrer-soft: #e6f4ea;
   --color-ink: #202124;
   --color-muted: #5f6368;
   --color-page: #f8f9fa;
-  --color-line: #e8eaed;
+  --color-line: #e4e7eb;
+  --shadow-card: 0 1px 2px rgb(60 64 67 / 6%), 0 6px 20px rgb(60 64 67 / 6%);
+  --shadow-lift: 0 2px 4px rgb(60 64 67 / 8%), 0 14px 34px rgb(60 64 67 / 13%);
+  --shadow-pop: 0 12px 48px rgb(32 33 36 / 22%);
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 html {
+  --glass-dense: color-mix(in srgb, var(--color-surface) 84%, transparent);
+  --glass: rgb(255 255 255 / 62%);
+  --glass-edge: rgb(255 255 255 / 75%);
+  --glass-shine: rgb(255 255 255 / 90%);
   color-scheme: light;
+  background: var(--color-page);
+  -webkit-tap-highlight-color: transparent;
+  overflow-y: scroll;
 }
 
 html[data-theme='dark'] {
   color-scheme: dark;
-  --color-seeker-soft: #18314b;
+  --color-primary: #8ab4f8;
+  --color-success: #81c995;
+  --color-danger: #f28b82;
+  --color-warn: #fdd663;
+  --color-surface: #20262d;
+  --color-raised: #343c45;
+  --color-referrer: #81c995;
   --color-referrer-soft: #193b2b;
   --color-ink: #e7eaee;
   --color-muted: #a8b0b8;
-  --color-page: #171b20;
-  --color-line: #39414a;
+  --color-page: #14181c;
+  --color-line: #343c45;
+  --glass: rgb(34 41 49 / 62%);
+  --glass-edge: rgb(255 255 255 / 12%);
+  --glass-shine: rgb(255 255 255 / 10%);
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 30%);
+  --shadow-lift: 0 14px 34px rgb(0 0 0 / 42%);
+  --shadow-pop: 0 12px 48px rgb(0 0 0 / 60%);
 }
 
 html,
@@ -40,62 +78,172 @@ body,
 
 body {
   margin: 0;
-  background:
-    radial-gradient(circle at 0% 0%, rgba(66, 133, 244, 0.1), transparent 40%),
-    radial-gradient(circle at 100% 0%, rgba(251, 188, 4, 0.1), transparent 35%),
-    var(--color-page);
-  background-attachment: fixed;
   color: var(--color-ink);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
 }
 
-html[data-theme='dark'] body {
+/* A fixed layer instead of background-attachment: fixed, which repaints on every scroll frame. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
   background:
-    radial-gradient(circle at 0% 0%, rgba(66, 133, 244, 0.09), transparent 40%),
-    radial-gradient(circle at 100% 0%, rgba(52, 168, 83, 0.06), transparent 35%),
-    var(--color-page);
+    radial-gradient(circle at 0% 0%, rgb(66 133 244 / 22%), transparent 44%),
+    radial-gradient(circle at 100% 0%, rgb(251 188 4 / 16%), transparent 38%),
+    radial-gradient(circle at 0% 100%, rgb(234 67 53 / 9%), transparent 36%),
+    radial-gradient(circle at 100% 100%, rgb(52 168 83 / 16%), transparent 42%);
 }
 
-html[data-theme='dark'] .bg-white {
-  background-color: #232a31;
+/*
+ * Frosted glass, for layers that float over the page only. Cards in lists stay solid: many blurred
+ * layers make scrolling stutter. Never nest one .glass inside another, the inner one cannot blur the page.
+ */
+.glass {
+  border: 1px solid var(--glass-edge);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  box-shadow: inset 0 1px 0 var(--glass-shine), var(--shadow-lift);
 }
 
-html[data-theme='dark'] .bg-white\/80 {
-  background-color: rgb(35 42 49 / 80%);
+/* Holds reading text, so it is frostier. */
+.glass-dense {
+  background: var(--glass-dense);
 }
 
-html[data-theme='dark'] .bg-white\/90 {
-  background-color: rgb(35 42 49 / 90%);
+.glass-flat {
+  border-width: 0 0 1px;
+  box-shadow: none;
 }
 
-html[data-theme='dark'] .github-sign-in {
-  background-color: #101418;
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  html {
+    --glass-dense: var(--color-surface);
+  }
+
+  .glass {
+    border-color: var(--color-line);
+    background: var(--color-surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
 }
 
-html[data-theme='dark'] .bg-gblue\/10 {
-  background-color: rgb(66 133 244 / 18%);
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass {
+    background: var(--color-surface);
+  }
 }
 
-html[data-theme='dark'] .bg-gred\/10 {
-  background-color: rgb(234 67 53 / 18%);
+@keyframes drift {
+  to {
+    transform: translate3d(var(--dx), var(--dy), 0) scale(1.15);
+  }
 }
 
-html[data-theme='dark'] .bg-gyellow\/20 {
-  background-color: rgb(251 188 4 / 18%);
+/* Soft radial fills instead of filter: blur(), so only a transform is animated. */
+.orb {
+  position: absolute;
+  border-radius: 999px;
+  background: radial-gradient(circle, var(--orb) 0%, transparent 68%);
+  animation: drift 14s ease-in-out infinite alternate;
 }
 
-html[data-theme='dark'] .bg-ggreen\/10 {
-  background-color: rgb(52 168 83 / 18%);
+button,
+a,
+label,
+input,
+textarea {
+  touch-action: manipulation;
 }
 
-html[data-theme='dark'] .text-yellow-700 {
-  color: #f3cb54;
+button:not(:disabled),
+label:has(input[type='checkbox']) {
+  cursor: pointer;
 }
 
-html[data-theme='dark'] input::placeholder,
-html[data-theme='dark'] textarea::placeholder {
-  color: #8e99a3;
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Immediate tactile response: press shrinks at once, release springs back. */
+.press {
+  transition:
+    transform 0.35s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background-color 0.18s,
+    border-color 0.18s,
+    color 0.18s,
+    box-shadow 0.25s,
+    opacity 0.18s;
+}
+
+.press:active:not(:disabled) {
+  transform: scale(0.955);
+  transition-duration: 0.06s, 0.18s, 0.18s, 0.18s, 0.25s, 0.18s;
+}
+
+@layer components {
+  .field {
+    width: 100%;
+    border: 1px solid var(--color-line);
+    border-radius: 0.9rem;
+    background: var(--color-surface);
+    padding: 0.7rem 0.95rem;
+    /* 16px stops iOS from zooming the page when a field is focused. */
+    font-size: 1rem;
+    line-height: 1.4;
+    outline: none;
+    transition: border-color 0.18s, box-shadow 0.18s, opacity 0.18s;
+  }
+
+  @media (min-width: 640px) {
+    .field {
+      font-size: 0.9rem;
+    }
+  }
+
+  .field:hover:not(:disabled) {
+    border-color: color-mix(in srgb, var(--color-muted) 45%, var(--color-line));
+  }
+
+  .field:focus {
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-primary) 15%, transparent);
+  }
+
+  .field:disabled {
+    opacity: 0.6;
+  }
+
+  .field::placeholder {
+    color: color-mix(in srgb, var(--color-muted) 78%, transparent);
+  }
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-line) 75%, transparent);
+}
+
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--color-surface) 70%, transparent), transparent);
+  animation: shimmer 1.4s infinite;
+}
+
+@keyframes shimmer {
+  to {
+    transform: translateX(100%);
+  }
 }
 
 @keyframes rise {
@@ -103,12 +251,214 @@ html[data-theme='dark'] textarea::placeholder {
     opacity: 0;
     transform: translateY(10px);
   }
-  to {
-    opacity: 1;
+}
+
+.rise {
+  animation: rise 0.45s var(--ease-out-soft) backwards;
+  animation-delay: calc(min(var(--i, 0), 8) * 40ms);
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateX(var(--from, 0));
+  }
+}
+
+.page-in {
+  animation: page-in 0.28s var(--ease-out-soft) backwards;
+}
+
+@keyframes logo-hop {
+  30% {
+    transform: translateY(-35%);
+  }
+  60% {
     transform: translateY(0);
   }
 }
 
-.rise {
-  animation: rise 0.35s ease both;
+.logo-loading .logo-dot {
+  animation: logo-hop 1s ease-in-out infinite;
+  animation-delay: calc(var(--i) * 80ms);
+}
+
+/* Cards light up under the cursor: a soft wash, plus a Google-coloured edge. Driven by usePointerEffects. */
+.spot {
+  position: relative;
+  isolation: isolate;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .spot::before,
+  .spot::after {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    z-index: -1;
+    border-radius: inherit;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.35s;
+  }
+
+  .spot::before {
+    background: radial-gradient(340px circle at var(--mx, 50%) var(--my, 50%), color-mix(in srgb, var(--color-gblue) 11%, transparent), transparent 70%);
+  }
+
+  .spot::after {
+    padding: 1.5px;
+    background: radial-gradient(260px circle at var(--mx, 50%) var(--my, 50%), #4285f4, #34a853 34%, #fbbc04 56%, #ea4335 74%, transparent 92%);
+    mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  }
+
+  .spot:hover::before,
+  .spot:hover::after {
+    opacity: 1;
+  }
+}
+
+/* Grows from the exact point pressed. Animated from usePointerEffects. */
+.ripple {
+  position: relative;
+  overflow: hidden;
+}
+
+.ripple::after {
+  content: '';
+  position: absolute;
+  left: var(--rx, 50%);
+  top: var(--ry, 50%);
+  height: 20px;
+  width: 20px;
+  border-radius: 999px;
+  background: currentColor;
+  opacity: 0;
+  pointer-events: none;
+}
+
+@keyframes wiggle {
+  20% {
+    transform: rotate(-11deg) scale(1.12);
+  }
+  50% {
+    transform: rotate(9deg) scale(1.12);
+  }
+  75% {
+    transform: rotate(-5deg) scale(1.06);
+  }
+}
+
+@media (hover: hover) {
+  .wiggle-host:hover .wiggle {
+    animation: wiggle 0.55s ease-in-out;
+  }
+}
+
+@keyframes word-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.5em) rotate(4deg);
+    filter: blur(6px);
+  }
+}
+
+.word-in {
+  display: inline-block;
+  animation: word-in 0.7s var(--ease-out-soft) backwards;
+  animation-delay: calc(var(--i) * 90ms + 120ms);
+}
+
+@keyframes sheen-text {
+  to {
+    background-position: 300% 0;
+  }
+}
+
+.google-text {
+  background: linear-gradient(90deg, #4285f4, #34a853, #e8a600, #ea4335, #4285f4) 0 0 / 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: word-in 0.7s var(--ease-out-soft) 0.48s backwards, sheen-text 9s linear infinite;
+}
+
+@keyframes shake {
+  20%,
+  60% {
+    transform: translateX(-5px);
+  }
+  40%,
+  80% {
+    transform: translateX(5px);
+  }
+}
+
+.shake {
+  animation: shake 0.32s ease-in-out;
+}
+
+@keyframes halo {
+  from {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(2);
+  }
+}
+
+.halo {
+  position: relative;
+  isolation: isolate;
+}
+
+.halo::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: 999px;
+  background: inherit;
+  animation: halo 1.8s ease-out infinite;
+}
+
+@keyframes spin-slow {
+  to {
+    rotate: 360deg;
+  }
+}
+
+.brand-ring {
+  background: conic-gradient(#4285f4, #ea4335, #fbbc04, #34a853, #4285f4);
+  animation: spin-slow 9s linear infinite;
+}
+
+/* The theme switch is drawn as a circle growing from the button (see switchTheme). */
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* The chat screens are not routed yet and still use plain white surfaces. */
+html[data-theme='dark'] .bg-white {
+  background-color: var(--color-surface);
+}
+
+html[data-theme='dark'] .bg-white\/80 {
+  background-color: rgb(32 38 45 / 80%);
 }

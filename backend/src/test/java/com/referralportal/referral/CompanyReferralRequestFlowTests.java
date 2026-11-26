@@ -742,7 +742,7 @@ class CompanyReferralRequestFlowTests {
     }
 
     @Test
-        void activeAssignmentCapBlocksAcceptance() {
+        void referrerCanAcceptAnyNumberOfRequests() {
         String suffix = UUID.randomUUID().toString().replace("-", "");
         String referrerEmail = "capacity-referrer-" + suffix + "@example.test";
         String firstSeekerEmail = "capacity-first-" + suffix + "@example.test";
@@ -763,9 +763,10 @@ class CompanyReferralRequestFlowTests {
                 new CreateRequest(companyId, "Second Role", "https://jobs.example.test/role", "", true, false));
         requests.accept(authentication(referrerEmail, "Capacity Referrer"), first.id(), new AcceptRequest(false, false));
 
-        ResponseStatusException full = assertThrows(ResponseStatusException.class,
-                () -> requests.accept(authentication(referrerEmail, "Capacity Referrer"), second.id(), new AcceptRequest(false, false)));
-        assertEquals(HttpStatus.CONFLICT.value(), full.getStatusCode().value());
+        // The legacy referral_limit column is no longer enforced, even when it is set low.
+        requests.accept(authentication(referrerEmail, "Capacity Referrer"), second.id(), new AcceptRequest(false, false));
+        assertEquals(2, count("referral_request_responses",
+                "referrer_id = ? AND status = 'accepted' AND submitted_at IS NULL", referrerId));
 
     }
 
