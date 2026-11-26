@@ -39,7 +39,8 @@ public class SecurityConfig {
     }
 
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http, @Value("${app.frontend-url:/}") String frontendUrl)
+    SecurityFilterChain securityFilterChain(HttpSecurity http, @Value("${app.frontend-url:/}") String frontendUrl,
+            @Value("${app.firebase-hosting:false}") boolean firebaseHosting)
             throws Exception {
         http
             .authorizeHttpRequests(auth -> auth
@@ -53,7 +54,9 @@ public class SecurityConfig {
                 new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
                 request -> request.getRequestURI().startsWith("/api/")))
             .csrf(csrf -> csrf
-                .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                .csrfTokenRepository(firebaseHosting
+                        ? new FirebaseHostingCsrfTokenRepository()
+                        : CookieCsrfTokenRepository.withHttpOnlyFalse())
                 .csrfTokenRequestHandler(new SpaCsrfTokenRequestHandler()));
         return http.build();
     }

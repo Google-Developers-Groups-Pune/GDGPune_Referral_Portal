@@ -42,6 +42,7 @@ class CloudRunSessionIntegrationTests {
 
         WebApplicationContextRunner contexts = new WebApplicationContextRunner()
                 .withInitializer(context -> context.getEnvironment().setActiveProfiles("cloudrun"))
+                .withPropertyValues("app.firebase-hosting=true")
                 .withBean(DataSource.class, () -> dataSource)
                 .withBean(PlatformTransactionManager.class, () -> new DataSourceTransactionManager(dataSource))
                 .withUserConfiguration(CloudRunSessionConfiguration.class);
@@ -56,7 +57,7 @@ class CloudRunSessionIntegrationTests {
             MockHttpServletResponse response = new MockHttpServletResponse();
             serializer.writeCookieValue(new CookieSerializer.CookieValue(new MockHttpServletRequest(), response, googleId));
             assertThat(response.getHeader("Set-Cookie"))
-                    .contains("Secure", "HttpOnly", "SameSite=Lax");
+                    .startsWith("__session=").contains("Secure", "HttpOnly", "SameSite=Lax");
 
             contexts.run(second -> {
                 assertThat(second).hasNotFailed();
