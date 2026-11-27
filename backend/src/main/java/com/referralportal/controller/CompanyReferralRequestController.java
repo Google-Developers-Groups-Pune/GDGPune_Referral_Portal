@@ -18,7 +18,9 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import static com.referralportal.dto.ReferralRequestDtos.ReferrerInboxItem;
 import static com.referralportal.dto.ReferralRequestDtos.SeekerRequest;
@@ -79,13 +81,10 @@ public class CompanyReferralRequestController {
         return referralRequests.continueWithOtherReferrers(auth, requestId);
     }
 
-    @PostMapping("/referral-requests/{requestId}/submitted")
-    public Map<String, Object> submitted(Authentication auth, @PathVariable long requestId) {
-        return referralRequests.markSubmitted(auth, requestId);
-    }
-
-    @PostMapping("/referral-requests/{requestId}/responses/{responseId}/confirm")
-    public Map<String, Object> confirm(Authentication auth, @PathVariable long requestId, @PathVariable long responseId) {
-        return referralRequests.confirmSubmission(auth, requestId, responseId);
+    /** Multipart: {@code screenshot} is the evidence an admin reviews before the referral is confirmed. */
+    @PostMapping(path = "/referral-requests/{requestId}/submitted", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Map<String, Object> submitted(Authentication auth, @PathVariable long requestId,
+            @RequestParam(value = "screenshot", required = false) MultipartFile screenshot) {
+        return referralRequests.markSubmitted(auth, requestId, screenshot);
     }
 }

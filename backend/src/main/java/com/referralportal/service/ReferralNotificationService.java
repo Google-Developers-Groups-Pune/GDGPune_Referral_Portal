@@ -58,10 +58,35 @@ public class ReferralNotificationService {
                 "responseId", response.getId(), "company", request.getCompany().getName()));
     }
 
+    /** An admin approved the referrer's screenshot. */
     @Transactional
-    public void confirmed(CompanyReferralRequest request, ReferralRequestResponse response) {
+    public void confirmed(CompanyReferralRequest request, ReferralRequestResponse response, boolean creditAwarded) {
         save(response.getReferrer(), "referral_confirmed", Map.of("requestId", request.getId(),
-                "responseId", response.getId(), "company", request.getCompany().getName()));
+                "responseId", response.getId(), "company", request.getCompany().getName(),
+                "creditAwarded", creditAwarded));
+    }
+
+    /** Tells the seeker their referral was verified by an admin. */
+    @Transactional
+    public void verified(CompanyReferralRequest request, ReferralRequestResponse response) {
+        save(request.getSeeker(), "referral_verified", Map.of("requestId", request.getId(),
+                "responseId", response.getId(), "company", request.getCompany().getName(),
+                "roleTitle", request.getRoleTitle()));
+    }
+
+    /** An admin rejected the screenshot; the referrer has to upload a new one. */
+    @Transactional
+    public void evidenceRejected(ReferralRequestResponse response, String reason) {
+        CompanyReferralRequest request = response.getRequest();
+        User referrer = response.getReferrer();
+        save(referrer, "referral_evidence_rejected", Map.of("requestId", request.getId(),
+                "responseId", response.getId(), "company", request.getCompany().getName(), "reason", reason));
+        if (!"demo".equals(referrer.getAuthProvider()) && referrer.getReferrerProfile() != null) {
+            send(referrer.getReferrerProfile().getWorkEmail(), "Upload a new referral screenshot",
+                "Your screenshot for the " + request.getRoleTitle() + " referral could not be verified.\n\n"
+                    + "Reason: " + reason + "\n\n"
+                    + "Upload a new screenshot within 4 days in Referral Portal: " + pageUrl());
+        }
     }
 
     @Transactional

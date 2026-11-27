@@ -275,21 +275,31 @@ requests use a separate request/response lifecycle.
 - Declines are shown as an anonymous count to the seeker; the directory never exposes employee
   identities.
 
-**Submission, confirmation, and earned credits:**
+**Submission, admin verification, and earned credits:**
 - An accepting referrer marks the referral submitted after using their company's internal
-  process (`POST /api/referral-requests/{id}/submitted`). This creates a row in `referrals`;
-  the app does not submit candidates to an employer's internal system.
-- The seeker confirms the submission for that specific referrer. Confirmation can award that
-  referrer one bonus request credit, at most two credits per rolling 30 days. Credits expire
-  after 90 days. This referral allowance is separate from the legacy meeting budget.
+  process, by uploading a screenshot as evidence (`POST /api/referral-requests/{id}/submitted`,
+  multipart field `screenshot`: PNG, JPEG or WebP up to 5 MB, type checked from the file's bytes).
+  The screenshot is stored in `referral_submission_evidence` (V12) with review status `pending`,
+  and the response becomes `submitted`. The app does not submit candidates to an employer's
+  internal system.
+- An admin reviews the screenshot in the admin dashboard (§10). The seeker no longer confirms.
+  - **Approve:** the response becomes `confirmed`, a `referrals` row is created, and the referrer
+    can earn one bonus request credit, at most two per rolling 30 days. Credits expire after
+    90 days. The seeker's request allowance, reserved when the request was created, stays used.
+  - **Reject (reason required):** the response goes back to `accepted` with a fresh four-day
+    window (`accepted_at` resets, reminders restart), and the referrer sees the reason and can
+    upload a new screenshot, which replaces the old one. If they never do, the normal assignment
+    timeout applies: the seeker can continue with other referrers or get the allowance back.
+  - An admin cannot review a referral in which they are the seeker or the referrer.
+- This referral allowance is separate from the legacy meeting budget.
 - Accepted but unsubmitted assignments trigger work-email reminders at 24, 48, and 72 hours, then
   close at 96 hours. If other verified
   referrers remain, the seeker can continue the request within four days; otherwise, or if the
   seeker does not continue, the request expires and its credit is returned.
 
 **Tables touched:** `company_referral_requests`, `referral_request_responses`,
-`referral_request_credits`, `referrer_profiles`, `profiles`, `notifications`, `referrals`,
-`companies`, and `users`.
+`referral_request_credits`, `referral_submission_evidence`, `referrer_profiles`, `profiles`,
+`notifications`, `referrals`, `companies`, and `users`.
 
 ---
 
@@ -327,8 +337,8 @@ referrers can preview and copy a referral packet from consent-filtered inbox det
 does not submit it to the employer. The frontend polls request status every 10 seconds.
 
 The existing `GET /api/referrals` endpoint still lists formal referral rows. A formal row is
-created when an accepted employee marks a request submitted; confirmation by the seeker is
-tracked separately on the response and controls the earned-credit award. No hiring-system
+created when an admin approves the referrer's submission screenshot; the same approval controls
+the earned-credit award. No hiring-system
 integration, candidate search, or resume upload is part of this flow.
 
 ---
@@ -362,8 +372,24 @@ added back later.
 
 ## 10. Admin panel
 
-Not implemented. `users.is_admin` exists in the schema; no admin controller/service/UI exists
-yet (no stats endpoint, company/sponsor management, report queue, or badge/QR bulk export).
+**Referral screenshot review** is implemented. Everything else (stats, company/sponsor
+management, report queue, badge/QR bulk export) is not.
+
+- **Who is an admin:** any user with `users.is_admin = TRUE`. It is read from the database on every
+  admin call (`AdminAccess`), so granting or revoking takes effect immediately for password and
+  Google/GitHub accounts alike. There is no UI to grant it. Run:
+  `UPDATE users SET is_admin = TRUE WHERE email = 'person@example.com';`
+- `GET /api/me` returns `isAdmin`; admins see an **Admin** tab (`/admin`) with a count of
+  screenshots waiting for review.
+- **Where:** `/api/admin/referral-evidence?status=pending|approved|rejected` →
+  [AdminController.java](/d:/GDG/Referral-Portal/backend/src/main/java/com/referralportal/controller/AdminController.java) →
+  [ReferralEvidenceReviewService.java](/d:/GDG/Referral-Portal/backend/src/main/java/com/referralportal/service/ReferralEvidenceReviewService.java).
+  `GET .../{responseId}/screenshot` serves the image (no-store, sandboxed);
+  `POST .../{responseId}/approve` and `POST .../{responseId}/reject` (`{"note": "..."}`) record
+  the decision and the reviewer in `referral_submission_evidence`.
+- The seeker gets a `referral_verified` notification on approval; the referrer gets
+  `referral_confirmed` (with whether a credit was awarded) or `referral_evidence_rejected` (with
+  the reason, also emailed to their work address).
 
 ---
 
@@ -378,7 +404,7 @@ yet (no stats endpoint, company/sponsor management, report queue, or badge/QR bu
 | Companies list with opted-in referrer availability, no employee names | ✅ Implemented |
 | Company referral requests (one active referrer at a time; seeker can continue after timeout) | ✅ Implemented |
 | Referral accept/decline (no assignment limit), contact consent | ✅ Implemented |
-| Submission confirmation, capped credits, expiry/refund | ✅ Implemented |
+| Submission screenshot, admin verification, capped credits, expiry/refund | ✅ Implemented |
 | In-app invitation notifications and capped email reminders | ✅ Implemented |
 | Legacy meet/chat UI | Hidden; backend APIs/data retained |
 | Badge + QR token generation/display | ✅ Implemented |
@@ -392,5 +418,6 @@ yet (no stats endpoint, company/sponsor management, report queue, or badge/QR bu
 | Block / report | ⚠️ Block is enforced in chat/requests; no report-submission UI found |
 | Legacy meeting credit ledger | ⚠️ Unused; referral-request credits use separate expiring records |
 | Message retention job (30-90 days) | ❌ Not implemented |
-| Admin panel (stats, companies, sponsors, report queue, export) | ❌ Not implemented |
+| Admin: referral screenshot review queue | ✅ Implemented |
+| Admin: stats, companies, sponsors, report queue, export | ❌ Not implemented |
 | LinkedIn sign-in | ❌ Not planned for MVP |

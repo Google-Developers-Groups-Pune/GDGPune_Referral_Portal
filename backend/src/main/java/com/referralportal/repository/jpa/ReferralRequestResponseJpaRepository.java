@@ -3,6 +3,7 @@ package com.referralportal.repository.jpa;
 import com.referralportal.entity.ReferralRequestResponse;
 import jakarta.persistence.LockModeType;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -19,6 +20,10 @@ public interface ReferralRequestResponseJpaRepository extends JpaRepository<Refe
     @Query("select rr from ReferralRequestResponse rr join fetch rr.request r join fetch r.company join fetch rr.referrer "
             + "where r.seeker.id = :seekerId order by rr.createdAt desc")
     List<ReferralRequestResponse> findAssignmentsBySeekerId(@Param("seekerId") long seekerId);
+
+    @Query("select rr from ReferralRequestResponse rr join fetch rr.request r join fetch r.company join fetch r.seeker "
+            + "join fetch rr.referrer where rr.id in :responseIds")
+    List<ReferralRequestResponse> findWithDetailsByIdIn(@Param("responseIds") Collection<Long> responseIds);
 
     List<ReferralRequestResponse> findByRequestIdOrderByCreatedAt(Long requestId);
 
