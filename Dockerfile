@@ -7,9 +7,14 @@ RUN npm run build
 
 FROM maven:3.9.9-eclipse-temurin-21-alpine AS backend-build
 WORKDIR /app
+# Dependencies first, in their own layer: it is reused until pom.xml changes, so code-only
+# deploys download nothing. They come from Google's Maven Central mirror (see the settings file).
+COPY backend/pom.xml ./backend/pom.xml
+COPY backend/.mvn/settings-docker.xml ./backend/.mvn/settings-docker.xml
+RUN mvn -B -s backend/.mvn/settings-docker.xml -f backend/pom.xml dependency:go-offline
 COPY backend/ ./backend/
 COPY --from=frontend-build /app/frontend/dist/ ./backend/src/main/resources/static/
-RUN mvn -B -f backend/pom.xml -DskipTests package
+RUN mvn -B -s backend/.mvn/settings-docker.xml -f backend/pom.xml -DskipTests package
 
 FROM eclipse-temurin:21-jre-alpine AS runtime
 WORKDIR /app
