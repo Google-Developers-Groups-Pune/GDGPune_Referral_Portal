@@ -21,7 +21,9 @@ never generates or alters DDL, it only maps onto the existing tables. All beans 
 field injection throughout (controllers, services, repositories).
 Each REST API controller declares the common `@RequestMapping("/api")` prefix; method mappings
 are relative, and the resulting public URLs remain `/api/...`. `SpaController` keeps its
-unprefixed frontend page routes.
+unprefixed frontend page routes, and `SpaFallbackConfiguration` serves `index.html` for any
+other unknown page URL (outside `/api`, `/actuator`, `/oauth2`, `/login` and missing files with an
+extension), so the React catch-all route redirects it home instead of Spring's whitelabel 404.
 
 - **`entity/`** — one `@Entity` class per table (`User`, `Profile`, `Company`,
   `ReferrerProfile`, `OpenRole`, `Badge`, `Conversation`, `Message`, `Referral`,
