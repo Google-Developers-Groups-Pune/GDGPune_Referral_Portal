@@ -114,7 +114,7 @@ class PasswordRegistrationVerificationTests {
                 () -> auth.beginRegistration("Impersonator", email, "correct horse 42", "127.0.0.1"));
         assertThat(rejected.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(rejected.getReason())
-                .isEqualTo("This email is already registered. Please sign in using Google instead.");
+                .isEqualTo("This email is already registered. Please sign in instead.");
 
         var existing = users.findByEmail(email).orElseThrow();
         assertThat(existing.getAuthProvider()).isEqualTo("google");

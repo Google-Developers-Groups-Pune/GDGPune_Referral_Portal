@@ -90,11 +90,11 @@ public class AuthController {
                     UsernamePasswordAuthenticationToken.unauthenticated(email.trim().toLowerCase(), password));
         } catch (AuthenticationException failed) {
             if (countFailure) {
-                loginAttemptRateLimiter.recordFailedLogin(email); // throws 429 on the attempt that hits the limit
+                loginAttemptRateLimiter.recordFailedLogin(email, request.getRemoteAddr()); // throws 429 on the attempt that hits the limit
             }
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid email or password.");
         }
-        loginAttemptRateLimiter.recordSuccessfulLogin(email);
+        loginAttemptRateLimiter.recordSuccessfulLogin(email, request.getRemoteAddr());
         sessionAuthenticationStrategy.onAuthentication(authentication, request, response);
         SecurityContext context = SecurityContextHolder.createEmptyContext();
         context.setAuthentication(authentication);

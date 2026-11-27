@@ -65,6 +65,15 @@ class SpaFallbackConfigurationTests {
     }
 
     @Test
+    void invalidPathsNeverGetTheSpaFallback() throws Exception {
+        assertNull(resolver.getResource("../secret", location));
+        assertNull(resolver.getResource("a/../../secret", location));
+        assertNull(resolver.getResource("%2e%2e/secret", location));
+        assertNull(resolver.getResource("WEB-INF/config", location));
+        assertNull(resolver.getResource("file:/etc/passwd", location));
+    }
+
+    @Test
     void requestsThroughResourceHandlerServeFilesAndFallBackButNeverEscapeLocation() throws Exception {
         Path secret = staticDir.getParent().resolve("spa-fallback-secret-" + System.nanoTime() + ".txt");
         Files.writeString(secret, "top secret");

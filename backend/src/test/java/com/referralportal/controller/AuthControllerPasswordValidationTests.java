@@ -80,6 +80,6 @@ class AuthControllerPasswordValidationTests {
                 request, new MockHttpServletResponse()));
 
         assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
-        verify(loginAttemptRateLimiter).recordFailedLogin("user@example.com");
+        verify(loginAttemptRateLimiter).recordFailedLogin("user@example.com", "127.0.0.1");
     }
 }

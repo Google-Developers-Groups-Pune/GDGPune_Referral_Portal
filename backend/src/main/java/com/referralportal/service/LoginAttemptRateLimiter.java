@@ -66,7 +66,7 @@ public class LoginAttemptRateLimiter {
             throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
                     retryMessage());
         }
-        String bucketHash = fingerprint(FAILED_LOGIN_BUCKET, normalizeEmail(email));
+        String bucketHash = failedLoginBucket(email, clientIp);
         List<int[]> active = jdbcTemplate.query(SELECT_ACTIVE_FAILURES,
                 (row, i) -> new int[] {row.getInt(1), row.getInt(2)},
                 failedLoginBlockSeconds, bucketHash, failedLoginBlockSeconds);
@@ -76,12 +76,13 @@ public class LoginAttemptRateLimiter {
     }
 
     /**
-     * Counts a wrong password for this email. The attempt that reaches the limit is answered with
+     * Counts a wrong password for this email from this network (keyed by both, so nobody can lock a user
+     * out from another network). The attempt that reaches the limit is answered with
      * 429 and starts a block of {@code failed-block-seconds} from now; it then expires on its own.
      */
     @Transactional(noRollbackFor = ResponseStatusException.class)
-    public void recordFailedLogin(String email) {
-        String bucketHash = fingerprint(FAILED_LOGIN_BUCKET, normalizeEmail(email));
+    public void recordFailedLogin(String email, String clientIp) {
+        String bucketHash = failedLoginBucket(email, clientIp);
         jdbcTemplate.update(UPSERT_ATTEMPT, bucketHash, failedLoginBlockSeconds, failedLoginBlockSeconds);
         int failures = jdbcTemplate.queryForObject(SELECT_ATTEMPTS, Integer.class, bucketHash);
         if (failures >= failedLoginLimit) {
@@ -105,9 +106,9 @@ public class LoginAttemptRateLimiter {
     }
 
     @Transactional
-    public void recordSuccessfulLogin(String email) {
+    public void recordSuccessfulLogin(String email, String clientIp) {
         jdbcTemplate.update("DELETE FROM auth_login_rate_limits WHERE bucket_hash = ?",
-                fingerprint(FAILED_LOGIN_BUCKET, normalizeEmail(email)));
+                failedLoginBucket(email, clientIp));
     }
 
     @Transactional
@@ -158,6 +159,11 @@ public class LoginAttemptRateLimiter {
 
     private static String normalizeEmail(String email) {
         return email.trim().toLowerCase(Locale.ROOT);
+    }
+
+    /** Failed-password bucket for one email from one network (a newline can't appear in either part). */
+    private static String failedLoginBucket(String email, String clientIp) {
+        return fingerprint(FAILED_LOGIN_BUCKET, normalizeEmail(email) + "\n" + clientIp);
     }
 
     private static String fingerprint(String type, String value) {

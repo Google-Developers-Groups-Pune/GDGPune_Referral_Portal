@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
@@ -75,7 +76,7 @@ class LoginAttemptRateLimiterTests {
                 .thenReturn(4);
         LoginAttemptRateLimiter limiter = new LoginAttemptRateLimiter(jdbcTemplate, 900, 10, 100, 5, 300);
 
-        assertDoesNotThrow(() -> limiter.recordFailedLogin("user@example.com"));
+        assertDoesNotThrow(() -> limiter.recordFailedLogin("user@example.com", "127.0.0.1"));
         verify(jdbcTemplate, times(1)).update(anyString(), any(Object[].class));
     }
 
@@ -87,7 +88,7 @@ class LoginAttemptRateLimiterTests {
         LoginAttemptRateLimiter limiter = new LoginAttemptRateLimiter(jdbcTemplate, 900, 10, 100, 5, 300);
 
         ResponseStatusException exception = assertThrows(ResponseStatusException.class,
-                () -> limiter.recordFailedLogin("user@example.com"));
+                () -> limiter.recordFailedLogin("user@example.com", "127.0.0.1"));
 
         assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
         assertThat(exception.getReason())
@@ -97,9 +98,27 @@ class LoginAttemptRateLimiterTests {
     }
 
     @Test
+    void failuresForSameEmailFromDifferentNetworksUseSeparateCounters() {
+        JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
+        when(jdbcTemplate.queryForObject(anyString(), eq(Integer.class), any(Object[].class)))
+                .thenReturn(1);
+        LoginAttemptRateLimiter limiter = new LoginAttemptRateLimiter(jdbcTemplate, 900, 10, 100, 5, 300);
+
+        limiter.recordFailedLogin("User@Example.com", "203.0.113.7");
+        limiter.recordFailedLogin("user@example.com", "203.0.113.7");
+        limiter.recordFailedLogin("user@example.com", "198.51.100.9");
+
+        ArgumentCaptor<Object[]> args = ArgumentCaptor.forClass(Object[].class);
+        verify(jdbcTemplate, times(3)).update(anyString(), args.capture());
+        Object attackerNetwork = args.getAllValues().get(0)[0];
+        assertThat(args.getAllValues().get(1)[0]).isEqualTo(attackerNetwork);
+        assertThat(args.getAllValues().get(2)[0]).isNotEqualTo(attackerNetwork);
+    }
+
+    @Test
     void failedLoginCountersCommitWhenBlocking() throws NoSuchMethodException {
         Transactional transaction = LoginAttemptRateLimiter.class
-                .getMethod("recordFailedLogin", String.class)
+                .getMethod("recordFailedLogin", String.class, String.class)
                 .getAnnotation(Transactional.class);
 
         assertThat(transaction.noRollbackFor()).contains(ResponseStatusException.class);

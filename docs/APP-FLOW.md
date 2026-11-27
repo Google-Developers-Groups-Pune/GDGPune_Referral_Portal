@@ -94,9 +94,10 @@ Spring Security OAuth2 login → [UserService.java](/d:/GDG/Referral-Portal/back
 **Supported sign-in methods:** email/password, Google OAuth, and GitHub OAuth. LinkedIn sign-in is not planned for the MVP.
 
 **Password sign-in limits** (`LoginAttemptRateLimiter`, table `auth_login_rate_limits`): each
-network is capped at 100 attempts per 15 minutes. Wrong passwords are counted per email; the 5th
-failure returns `429` ("Too many failed sign-in attempts. Please try again in 5 minutes.") and blocks
-password sign-in for that email for 5 minutes from that attempt. The block expires on its own (no
+network is capped at 100 attempts per 15 minutes. Wrong passwords are counted per email *and*
+network; the 5th failure returns `429` ("Too many failed sign-in attempts. Please try again in 5
+minutes.") with a `Retry-After` header, and blocks password sign-in for that email from that network
+for 5 minutes from that attempt. Keying by network means a stranger can't lock a real user out. The block expires on its own (no
 permanent lockout), and a successful sign-in clears the count. Configurable via
 `app.auth.login-rate-limit.failed-attempts` and `failed-block-seconds`.
 
@@ -107,8 +108,9 @@ permanent lockout), and a successful sign-in clears the count. Configurable via
   the password, and applies registration rate limits. If the email can be registered, it stores a
   pending-registration row with the password and OTP hashes, then emails a six-digit code. It does
   not create a `users` row or session yet. If an account with that email already exists, no code is
-  sent and the backend returns `409 Conflict` with a message telling the user how to sign in
-  (Google, GitHub, or email and password, based on the account's provider). The rate limits above
+  sent and the backend returns `409 Conflict` with "This email is already registered. Please sign in
+  instead." The message is the same for every provider so it doesn't reveal how the account signs
+  in. The rate limits above
   run first, which bounds how quickly anyone can probe for registered emails.
 2. The code expires after ten minutes and permits at most five incorrect attempts. Resending a code
   is rate limited; a new code replaces the previous pending registration for that email.

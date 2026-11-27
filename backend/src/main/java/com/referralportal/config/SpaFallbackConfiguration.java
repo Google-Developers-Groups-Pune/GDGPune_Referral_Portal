@@ -7,6 +7,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 import org.springframework.web.servlet.resource.PathResourceResolver;
+import org.springframework.web.servlet.resource.ResourceHandlerUtils;
 
 /**
  * Serves the built SPA from {@code classpath:/static/} and falls back to {@code index.html} for
@@ -34,6 +35,11 @@ public class SpaFallbackConfiguration implements WebMvcConfigurer {
 
         @Override
         protected Resource getResource(String resourcePath, Resource location) throws IOException {
+            // Same invalid-path rules as Spring's resource handler ("../", WEB-INF, URLs, bad encodings):
+            // such paths get a 404, never a file and never the SPA fallback.
+            if (!resourcePath.isEmpty() && ResourceHandlerUtils.shouldIgnoreInputPath(resourcePath)) {
+                return null;
+            }
             // super applies PathResourceResolver's checks, including that the file stays under the location.
             Resource requested = resourcePath.isEmpty() ? null : super.getResource(resourcePath, location);
             if (requested != null) {

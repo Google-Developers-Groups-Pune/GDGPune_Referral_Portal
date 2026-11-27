@@ -31,6 +31,7 @@ public class AuthService {
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final int BCRYPT_MAX_PASSWORD_BYTES = 72;
     private static final int MAX_REGISTRATION_ATTEMPTS = 5;
+    private static final String EMAIL_ALREADY_REGISTERED = "This email is already registered. Please sign in instead.";
     private static final String INVALID_REGISTRATION = "Invalid or expired verification code. Start registration again or sign in.";
 
     @Autowired
@@ -58,7 +59,8 @@ public class AuthService {
         loginAttemptRateLimiter.checkRegistrationAllowed(normalizedEmail, clientIp);
         var existing = userJpa.findByEmail(normalizedEmail);
         if (existing.isPresent()) {
-            throw emailAlreadyRegistered(existing.get().getAuthProvider());
+            // Same message for every provider, so registration doesn't reveal how an account signs in.
+            throw new ResponseStatusException(HttpStatus.CONFLICT, EMAIL_ALREADY_REGISTERED);
         }
 
         String code = String.format(Locale.ROOT, "%06d", RANDOM.nextInt(1_000_000));
@@ -131,16 +133,6 @@ public class AuthService {
     private static ResponseStatusException emailTaken() {
         return new ResponseStatusException(HttpStatus.CONFLICT,
                 "An account with this email already exists. Try signing in instead.");
-    }
-
-    private static ResponseStatusException emailAlreadyRegistered(String authProvider) {
-        String howToSignIn = switch (authProvider == null ? "" : authProvider) {
-            case "google" -> "Google";
-            case "github" -> "GitHub";
-            default -> "your existing email and password";
-        };
-        return new ResponseStatusException(HttpStatus.CONFLICT,
-                "This email is already registered. Please sign in using " + howToSignIn + " instead.");
     }
 
     private static String normalizeEmail(String email) {
