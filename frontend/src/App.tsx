@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
-import { Award, Building2, CircleUserRound, LogOut, Moon, QrCode, Search, Sun, type LucideIcon } from 'lucide-react'
+import { Award, Building2, CircleUserRound, LogOut, Moon, QrCode, Search, ShieldCheck, Sun, type LucideIcon } from 'lucide-react'
 import * as m from 'motion/react-m'
 import { Suspense, lazy, useEffect, useState, type CSSProperties } from 'react'
 import { Link, NavLink, Navigate, Outlet, Route, Routes, useLocation } from 'react-router-dom'
@@ -8,6 +8,8 @@ import { api, type Me } from './api'
 import { haptic, switchTheme, type Theme } from './feedback'
 import NotificationBell from './NotificationBell'
 import {
+  adminEvidenceCountsQuery,
+  adminEvidenceQuery,
   badgeQuery,
   companiesQuery,
   inboxQuery,
@@ -25,10 +27,12 @@ const loadCompanies = () => import('./pages/Companies')
 const loadReferrals = () => import('./pages/Referrals')
 const loadBadge = () => import('./pages/Badge')
 const loadProfile = () => import('./pages/Profile')
+const loadAdmin = () => import('./pages/Admin')
 const CompaniesPage = lazy(loadCompanies)
 const ReferralsPage = lazy(loadReferrals)
 const BadgePage = lazy(loadBadge)
 const ProfilePage = lazy(loadProfile)
+const AdminPage = lazy(loadAdmin)
 const SignIn = lazy(() => import('./pages/SignIn'))
 
 type Tab = {
@@ -81,6 +85,17 @@ const tabs: Tab[] = [
   },
 ]
 
+/** Shown only to admins (users.is_admin). */
+const adminTab: Tab = {
+  to: '/admin',
+  label: 'Admin',
+  icon: ShieldCheck,
+  prefetch: (qc) => {
+    void loadAdmin()
+    void qc.prefetchQuery(adminEvidenceQuery('pending'))
+  },
+}
+
 function ThemeButton({ theme, onToggle }: { theme: Theme; onToggle: (origin: { x: number; y: number }) => void }) {
   return (
     <IconButton
@@ -98,9 +113,16 @@ function ThemeButton({ theme, onToggle }: { theme: Theme; onToggle: (origin: { x
 function useWaitingCount() {
   const { data: sent } = useQuery({ ...sentRequestsQuery, refetchInterval: 30_000 })
   const { data: inbox } = useQuery({ ...inboxQuery, refetchInterval: 30_000 })
-  const toAnswer = inbox?.filter((item) => item.status === 'pending').length ?? 0
-  const toConfirm = sent?.filter((r) => r.canContinueWithOtherReferrers || r.responses.some((x) => x.status === 'submitted')).length ?? 0
-  return toAnswer + toConfirm
+  const toAnswer = inbox?.filter((item) => item.status === 'pending'
+    || (item.status === 'accepted' && item.evidenceStatus === 'rejected')).length ?? 0
+  const toDecide = sent?.filter((r) => r.canContinueWithOtherReferrers).length ?? 0
+  return toAnswer + toDecide
+}
+
+/** Screenshots waiting for an admin, shown on the Admin tab. */
+function usePendingReviewCount(enabled: boolean) {
+  const { data } = useQuery({ ...adminEvidenceCountsQuery, enabled, refetchInterval: 30_000 })
+  return enabled ? data?.pending ?? 0 : 0
 }
 
 function NavItem({ tab, count, layout }: { tab: Tab; count: number; layout: 'bar' | 'side' }) {
@@ -158,7 +180,7 @@ function CountBadge({ count, className }: { count: number; className: string }) 
 /** Slides each page in from the side its tab sits on. There is no exit phase, so taps never wait. */
 function PageFrame() {
   const { pathname } = useLocation()
-  const index = tabs.findIndex((tab) => tab.to === pathname)
+  const index = [...tabs, adminTab].findIndex((tab) => tab.to === pathname)
   const [last, setLast] = useState({ pathname, index, from: 0 })
   if (last.pathname !== pathname) setLast({ pathname, index, from: Math.sign(index - last.index) * 18 })
   useEffect(() => {
@@ -176,6 +198,8 @@ function PageFrame() {
 function Shell({ me, theme, toggleTheme }: { me: Me; theme: Theme; toggleTheme: (origin: { x: number; y: number }) => void }) {
   const qc = useQueryClient()
   const waiting = useWaitingCount()
+  const pendingReviews = usePendingReviewCount(me.isAdmin)
+  const shownTabs = me.isAdmin ? [...tabs, adminTab] : tabs
   const [confirmSignOut, setConfirmSignOut] = useState(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
 
@@ -195,20 +219,20 @@ function Shell({ me, theme, toggleTheme }: { me: Me; theme: Theme; toggleTheme: 
       window.location.assign('/')
     }
   }
-  const countFor = (tab: Tab) => (tab.to === '/referrals' ? waiting : 0)
+  const countFor = (tab: Tab) => (tab.to === '/referrals' ? waiting : tab.to === '/admin' ? pendingReviews : 0)
 
   return (
     <div className="mx-auto flex min-h-dvh w-full max-w-[1120px]">
       <m.aside layoutRoot className="sticky top-4 my-4 hidden h-[calc(100dvh-2rem)] w-60 shrink-0 glass flex-col rounded-3xl px-4 py-6 lg:flex">
         <Link to="/" aria-label="Referral Portal home" className="rounded-xl px-3"><Logo /></Link>
         <nav aria-label="Main" className="mt-8 space-y-1">
-          {tabs.map((tab) => <NavItem key={tab.to} tab={tab} count={countFor(tab)} layout="side" />)}
+          {shownTabs.map((tab) => <NavItem key={tab.to} tab={tab} count={countFor(tab)} layout="side" />)}
         </nav>
         <div className="mt-auto flex items-center gap-3 rounded-2xl border border-line bg-surface/60 p-3">
           <Avatar name={me.name} size="sm" />
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-bold">{me.name}</p>
-            <p className="truncate text-xs text-muted">{me.isReferrer ? 'Seeker and referrer' : 'Seeker'}</p>
+            <p className="truncate text-xs text-muted">{[me.isReferrer ? 'Seeker and referrer' : 'Seeker', me.isAdmin ? 'Admin' : null].filter(Boolean).join(' · ')}</p>
           </div>
         </div>
       </m.aside>
@@ -239,8 +263,8 @@ function Shell({ me, theme, toggleTheme }: { me: Me; theme: Theme; toggleTheme: 
       </div>
 
       <m.nav layoutRoot aria-label="Main" className="fixed inset-x-0 bottom-0 z-30 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] lg:hidden">
-        <div className="mx-auto grid max-w-md grid-cols-4 gap-1 rounded-3xl glass p-1.5">
-          {tabs.map((tab) => <NavItem key={tab.to} tab={tab} count={countFor(tab)} layout="bar" />)}
+        <div className={`mx-auto grid max-w-md gap-1 rounded-3xl glass p-1.5 ${shownTabs.length === 5 ? 'grid-cols-5' : 'grid-cols-4'}`}>
+          {shownTabs.map((tab) => <NavItem key={tab.to} tab={tab} count={countFor(tab)} layout="bar" />)}
         </div>
       </m.nav>
 
@@ -319,6 +343,7 @@ function AppContent() {
         <Route path="companies" element={me.hasProfile ? <CompaniesPage /> : <Navigate to="/profile" replace />} />
         <Route path="badge" element={<BadgePage me={me} />} />
         <Route path="referrals" element={<ReferralsPage />} />
+        <Route path="admin" element={me.isAdmin ? <AdminPage /> : <Navigate to="/" replace />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

@@ -24,9 +24,17 @@ function describe(n: AppNotification): string {
     case 'referral_accepted':
       return `Your referral request at ${company} was accepted`
     case 'referral_submitted':
-      return `Your referral at ${company} was marked submitted`
+      return `Your referral at ${company} was submitted and is being verified`
     case 'referral_confirmed':
-      return `Your referral at ${company} was confirmed`
+      return n.payload.creditAwarded === true
+        ? `Your referral at ${company} was verified. You earned a request credit`
+        : `Your referral at ${company} was verified`
+    case 'referral_verified':
+      return role ? `Your referral for ${role} at ${company} was verified` : `Your referral at ${company} was verified`
+    case 'referral_evidence_rejected':
+      return text(n.payload.reason)
+        ? `Your referral screenshot for ${company} was rejected: ${text(n.payload.reason)}`
+        : `Your referral screenshot for ${company} was rejected. Upload a new one`
     case 'referral_reminder':
       return role ? `Reminder: referral at ${company} for ${role}` : `Reminder: referral at ${company}`
     case 'referral_closed':

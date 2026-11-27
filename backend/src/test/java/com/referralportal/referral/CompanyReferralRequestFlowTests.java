@@ -13,6 +13,8 @@ import com.referralportal.dto.ReferralRequestDtos.ReferrerInboxItem;
 import com.referralportal.dto.ReferralRequestDtos.SeekerRequest;
 import com.referralportal.service.CompanyReferralRequestService;
 import com.referralportal.service.CompanyService;
+import com.referralportal.dto.AdminDtos.EvidenceItem;
+import com.referralportal.service.ReferralEvidenceReviewService;
 import com.referralportal.service.ReferralRequestBudget;
 import com.referralportal.service.ReferralRequestScheduler;
 import com.referralportal.service.ResumeService;
@@ -80,6 +82,9 @@ class CompanyReferralRequestFlowTests {
         @Autowired
         private ReferralRequestResponseJpaRepository responses;
 
+        @Autowired
+        private ReferralEvidenceReviewService reviews;
+
     @Autowired
     private JdbcClient jdbc;
 
@@ -137,12 +142,241 @@ class CompanyReferralRequestFlowTests {
         assertEquals("first-work-" + suffix + "@company.test", sharedResponse.referrerEmail());
         assertEquals("+1 555 010 5678", sharedResponse.referrerPhone());
 
-        requests.markSubmitted(authentication(firstReferrerEmail, "First Referrer"), request.id());
-        requests.confirmSubmission(authentication(seekerEmail, "Seeker"), request.id(), firstResponseId);
+        requests.markSubmitted(authentication(firstReferrerEmail, "First Referrer"), request.id(), screenshot());
+        approve(adminAuthentication(suffix), firstResponseId);
 
         assertEquals(1, count("referral_request_credits", "user_id = ?", firstReferrerId));
         assertEquals(1, count("referrals", "referrer_id = ? AND candidate_id = ? AND company_id = ?",
                 firstReferrerId, seekerId, companyId));
+    }
+
+    @Test
+    void submissionNeedsAnImageScreenshotAndOnlyAdminApprovalConfirmsIt() {
+        String suffix = UUID.randomUUID().toString().replace("-", "");
+        String seekerEmail = "evidence-seeker-" + suffix + "@example.test";
+        String referrerEmail = "evidence-referrer-" + suffix + "@example.test";
+        long seekerId = insertUser("Evidence Seeker", seekerEmail);
+        long referrerId = insertUser("Evidence Referrer", referrerEmail);
+        long companyId = insertCompany(suffix);
+        insertProfile(seekerId, null);
+        insertProfile(referrerId, null);
+        insertReferrer(referrerId, companyId, "evidence-work-" + suffix + "@company.test");
+        SeekerRequest request = requests.create(authentication(seekerEmail, "Evidence Seeker"),
+                new CreateRequest(companyId, "Data Engineer", "https://jobs.example.test/data", "", true, false));
+        requests.accept(authentication(referrerEmail, "Evidence Referrer"), request.id(), new AcceptRequest(false, false));
+        long responseId = responseIdFor(requests.inbox(authentication(referrerEmail, "Evidence Referrer")), request.id());
+
+        ResponseStatusException missing = assertThrows(ResponseStatusException.class,
+                () -> requests.markSubmitted(authentication(referrerEmail, "Evidence Referrer"), request.id(), null));
+        assertEquals(HttpStatus.BAD_REQUEST, missing.getStatusCode());
+        ResponseStatusException notImage = assertThrows(ResponseStatusException.class,
+                () -> requests.markSubmitted(authentication(referrerEmail, "Evidence Referrer"), request.id(),
+                        new MockMultipartFile("screenshot", "proof.png", "image/png", "%PDF-1.7".getBytes())));
+        assertEquals(HttpStatus.UNSUPPORTED_MEDIA_TYPE, notImage.getStatusCode());
+
+        requests.markSubmitted(authentication(referrerEmail, "Evidence Referrer"), request.id(), screenshot());
+        assertEquals("submitted", responses.findById(responseId).orElseThrow().getStatus());
+        assertEquals(1, count("referral_submission_evidence", "response_id = ? AND review_status = 'pending' "
+                + "AND content_type = 'image/png'", responseId));
+        assertEquals(0, count("referrals", "referrer_id = ? AND candidate_id = ?", referrerId, seekerId));
+        assertEquals(0, count("referral_request_credits", "user_id = ?", referrerId));
+
+        // Neither the seeker nor the referrer can approve; an admin who is part of the referral cannot either.
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class,
+                () -> approve(authentication(seekerEmail, "Evidence Seeker"), responseId)).getStatusCode());
+        jdbc.sql("UPDATE users SET is_admin = TRUE WHERE id = ?").param(referrerId).update();
+        assertEquals(HttpStatus.FORBIDDEN, assertThrows(ResponseStatusException.class,
+                () -> approve(authentication(referrerEmail, "Evidence Referrer"), responseId)).getStatusCode());
+
+        var admin = adminAuthentication(suffix);
+        EvidenceItem queued = reviews.queue(admin, "pending").items().stream()
+                .filter(item -> item.responseId() == responseId).findFirst().orElseThrow();
+        assertEquals(seekerEmail, queued.seekerEmail());
+        assertEquals("evidence-work-" + suffix + "@company.test", queued.referrerWorkEmail());
+        assertArrayEquals(ScreenshotFixtures.PNG, reviews.screenshot(admin, responseId).getData());
+
+        assertEquals(Boolean.TRUE, approve(admin, responseId).get("creditAwarded"));
+        entityManager.flush();
+        assertEquals("confirmed", responses.findById(responseId).orElseThrow().getStatus());
+        assertEquals(1, count("referral_submission_evidence", "response_id = ? AND review_status = 'approved' "
+                + "AND reviewed_by IS NOT NULL", responseId));
+        assertEquals(1, count("referrals", "referrer_id = ? AND candidate_id = ? AND company_id = ?",
+                referrerId, seekerId, companyId));
+        assertEquals(1, count("referral_request_credits", "user_id = ?", referrerId));
+        assertEquals(1, count("notifications", "user_id = ? AND type = 'referral_verified'", seekerId));
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ResponseStatusException.class,
+                () -> approve(admin, responseId)).getStatusCode());
+    }
+
+    @Test
+    void rejectedScreenshotGoesBackToReferrerWithAFreshWindowAndCanBeReplaced() {
+        String suffix = UUID.randomUUID().toString().replace("-", "");
+        String seekerEmail = "rejected-seeker-" + suffix + "@example.test";
+        String referrerEmail = "rejected-referrer-" + suffix + "@example.test";
+        long seekerId = insertUser("Rejected Seeker", seekerEmail);
+        long referrerId = insertUser("Rejected Referrer", referrerEmail);
+        long companyId = insertCompany(suffix);
+        insertProfile(seekerId, null);
+        insertProfile(referrerId, null);
+        insertReferrer(referrerId, companyId, "rejected-work-" + suffix + "@company.test");
+        SeekerRequest request = requests.create(authentication(seekerEmail, "Rejected Seeker"),
+                new CreateRequest(companyId, "QA Engineer", "https://jobs.example.test/qa", "", true, false));
+        requests.accept(authentication(referrerEmail, "Rejected Referrer"), request.id(), new AcceptRequest(false, false));
+        long responseId = responseIdFor(requests.inbox(authentication(referrerEmail, "Rejected Referrer")), request.id());
+        jdbc.sql("UPDATE referral_request_responses SET accepted_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 3 DAY), "
+                + "reminders_sent = 2 WHERE id = ?").param(responseId).update();
+        entityManager.flush();
+        entityManager.clear();
+        requests.markSubmitted(authentication(referrerEmail, "Rejected Referrer"), request.id(), screenshot());
+        var admin = adminAuthentication(suffix);
+
+        assertEquals(HttpStatus.BAD_REQUEST, assertThrows(ResponseStatusException.class,
+                () -> reject(admin, responseId, "  ")).getStatusCode());
+        reject(admin, responseId, "The candidate's name is not visible.");
+        entityManager.flush();
+        entityManager.clear();
+
+        var response = responses.findById(responseId).orElseThrow();
+        assertEquals("accepted", response.getStatus());
+        assertNull(response.getSubmittedAt());
+        assertEquals(0, response.getRemindersSent());
+        assertTrue(response.getAcceptedAt().isAfter(Instant.now().minus(1, ChronoUnit.HOURS)));
+        ReferrerInboxItem item = requests.inbox(authentication(referrerEmail, "Rejected Referrer")).stream()
+                .filter(inboxItem -> inboxItem.responseId() == responseId).findFirst().orElseThrow();
+        assertEquals("rejected", item.evidenceStatus());
+        assertEquals("The candidate's name is not visible.", item.evidenceNote());
+        assertEquals(0, count("referral_request_credits", "user_id = ?", referrerId));
+        assertEquals(1, count("notifications", "user_id = ? AND type = 'referral_evidence_rejected'", referrerId));
+
+        requests.markSubmitted(authentication(referrerEmail, "Rejected Referrer"), request.id(), screenshot());
+        entityManager.flush();
+        assertEquals(1, count("referral_submission_evidence", "response_id = ? AND review_status = 'pending' "
+                + "AND review_note IS NULL AND reviewed_by IS NULL", responseId));
+        approve(admin, responseId);
+        entityManager.flush();
+        assertEquals("confirmed", responses.findById(responseId).orElseThrow().getStatus());
+        assertEquals(1, count("referrals", "referrer_id = ? AND candidate_id = ?", referrerId, seekerId));
+    }
+
+    @Test
+    void reviewOfAReplacedScreenshotIsRefused() {
+        Fixture f = acceptedReferral("stale");
+        requests.markSubmitted(authentication(f.referrerEmail(), "Referrer"), f.requestId(), screenshot());
+        var admin = adminAuthentication(f.suffix());
+
+        ResponseStatusException stale = assertThrows(ResponseStatusException.class,
+                () -> reviews.approve(admin, f.responseId(), "0".repeat(64)));
+        assertEquals(HttpStatus.CONFLICT, stale.getStatusCode());
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ResponseStatusException.class,
+                () -> reviews.reject(admin, f.responseId(), "Not visible.", "0".repeat(64))).getStatusCode());
+        assertEquals("confirmed", approve(admin, f.responseId()).get("status"));
+    }
+
+    @Test
+    void oneReferralPerPersonAndCompanyEvenAcrossDifferentRoles() {
+        Fixture first = acceptedReferral("tuple");
+        SeekerRequest second = requests.create(authentication(first.seekerEmail(), "Seeker"),
+                new CreateRequest(first.companyId(), "Second Role", "https://jobs.example.test/second", "", true, false));
+        requests.accept(authentication(first.referrerEmail(), "Referrer"), second.id(), new AcceptRequest(false, false));
+        long secondResponseId = responseIdFor(requests.inbox(authentication(first.referrerEmail(), "Referrer")), second.id());
+
+        requests.markSubmitted(authentication(first.referrerEmail(), "Referrer"), first.requestId(), screenshot());
+        ResponseStatusException duplicate = assertThrows(ResponseStatusException.class, () -> requests.markSubmitted(
+                authentication(first.referrerEmail(), "Referrer"), second.id(), screenshot()));
+        assertEquals(HttpStatus.CONFLICT, duplicate.getStatusCode());
+
+        // If both still reach review (a race before the submit check existed), only one approval may count.
+        entityManager.flush();
+        jdbc.sql("UPDATE referral_request_responses SET status = 'submitted', submitted_at = CURRENT_TIMESTAMP WHERE id = ?")
+                .param(secondResponseId).update();
+        jdbc.sql("INSERT INTO referral_submission_evidence (response_id, filename, content_type, size_bytes, sha256, data, "
+                + "uploaded_at) SELECT ?, filename, content_type, size_bytes, sha256, data, uploaded_at "
+                + "FROM referral_submission_evidence WHERE response_id = ?").params(secondResponseId, first.responseId()).update();
+        entityManager.clear();
+        var admin = adminAuthentication(first.suffix());
+        approve(admin, first.responseId());
+        assertEquals(HttpStatus.CONFLICT, assertThrows(ResponseStatusException.class,
+                () -> approve(admin, secondResponseId)).getStatusCode());
+        assertEquals(1, count("referral_request_credits", "user_id = ?", first.referrerId()));
+        assertEquals(1, count("referrals", "referrer_id = ? AND candidate_id = ?", first.referrerId(), first.seekerId()));
+    }
+
+    @Test
+    void backupReferrersStayAvailableWhileAScreenshotAwaitsReview() {
+        Fixture f = acceptedReferral("backup");
+        long backupId = insertUser("Backup Referrer", "backup-" + f.suffix() + "@example.test");
+        insertProfile(backupId, null);
+        insertReferrer(backupId, f.companyId(), "spare-work-" + f.suffix() + "@company.test");
+        insertBackupInvite(f.requestId(), backupId);
+        requests.markSubmitted(authentication(f.referrerEmail(), "Referrer"), f.requestId(), screenshot());
+
+        // The request window ends while the screenshot is still waiting for an admin.
+        jdbc.sql("UPDATE company_referral_requests SET expires_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 1 MINUTE) WHERE id = ?")
+                .param(f.requestId()).update();
+        entityManager.flush();
+        entityManager.clear();
+        scheduler.processDueRequests();
+        assertEquals(1, count("referral_request_responses", "request_id = ? AND referrer_id = ? AND status = 'accepted_elsewhere'",
+                f.requestId(), backupId));
+
+        // Rejected, then never re-uploaded: the seeker can continue with the backup referrer.
+        reject(adminAuthentication(f.suffix()), f.responseId(), "The candidate's name is not visible.");
+        entityManager.flush();
+        jdbc.sql("UPDATE referral_request_responses SET accepted_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 5 DAY) WHERE id = ?")
+                .param(f.responseId()).update();
+        entityManager.clear();
+        scheduler.processDueRequests();
+        SeekerRequest seekerView = requests.seekerRequests(authentication(f.seekerEmail(), "Seeker")).stream()
+                .filter(item -> item.id() == f.requestId()).findFirst().orElseThrow();
+        assertTrue(seekerView.canContinueWithOtherReferrers());
+        assertFalse(seekerView.creditReturned());
+    }
+
+    @Test
+    void approvalClosesBackupInvitationsOnceTheRequestWindowHasEnded() {
+        Fixture f = acceptedReferral("settle");
+        long backupId = insertUser("Backup Referrer", "settle-backup-" + f.suffix() + "@example.test");
+        insertProfile(backupId, null);
+        insertReferrer(backupId, f.companyId(), "spare-work-" + f.suffix() + "@company.test");
+        insertBackupInvite(f.requestId(), backupId);
+        requests.markSubmitted(authentication(f.referrerEmail(), "Referrer"), f.requestId(), screenshot());
+        jdbc.sql("UPDATE company_referral_requests SET expires_at = DATE_SUB(CURRENT_TIMESTAMP, INTERVAL 1 MINUTE) WHERE id = ?")
+                .param(f.requestId()).update();
+        entityManager.flush();
+        entityManager.clear();
+        scheduler.processDueRequests();
+
+        approve(adminAuthentication(f.suffix()), f.responseId());
+        entityManager.flush();
+        assertEquals(1, count("referral_request_responses", "request_id = ? AND referrer_id = ? AND status = 'expired'",
+                f.requestId(), backupId));
+    }
+
+    private record Fixture(String suffix, String seekerEmail, String referrerEmail, long seekerId, long referrerId,
+            long companyId, long requestId, long responseId) {}
+
+    /** A seeker's request accepted by one verified referrer, ready to be submitted. */
+    private Fixture acceptedReferral(String label) {
+        String suffix = label + UUID.randomUUID().toString().replace("-", "");
+        String seekerEmail = label + "-seeker-" + suffix + "@example.test";
+        String referrerEmail = label + "-referrer-" + suffix + "@example.test";
+        long seekerId = insertUser("Seeker", seekerEmail);
+        long referrerId = insertUser("Referrer", referrerEmail);
+        long companyId = insertCompany(suffix);
+        insertProfile(seekerId, null);
+        insertProfile(referrerId, null);
+        insertReferrer(referrerId, companyId, label + "-work-" + suffix + "@company.test");
+        SeekerRequest request = requests.create(authentication(seekerEmail, "Seeker"),
+                new CreateRequest(companyId, "First Role", "https://jobs.example.test/first", "", true, false));
+        requests.accept(authentication(referrerEmail, "Referrer"), request.id(), new AcceptRequest(false, false));
+        long responseId = responseIdFor(requests.inbox(authentication(referrerEmail, "Referrer")), request.id());
+        return new Fixture(suffix, seekerEmail, referrerEmail, seekerId, referrerId, companyId, request.id(), responseId);
+    }
+
+    /** Another verified referrer who was invited too and is waiting while someone else holds the referral. */
+    private void insertBackupInvite(long requestId, long referrerId) {
+        jdbc.sql("INSERT INTO referral_request_responses (request_id, referrer_id, status, created_at) "
+                + "VALUES (?, ?, 'accepted_elsewhere', CURRENT_TIMESTAMP)").params(requestId, referrerId).update();
     }
 
     @Test
@@ -660,8 +894,8 @@ class CompanyReferralRequestFlowTests {
                             new CreateRequest(companyId, "Role " + referralNumber, "https://jobs.example.test/role", "", true, false));
                     requests.accept(authentication(referrerEmail, "Credit Referrer"), request.id(), new AcceptRequest(false, false));
                     long responseId = responseIdFor(requests.inbox(authentication(referrerEmail, "Credit Referrer")), request.id());
-                    requests.markSubmitted(authentication(referrerEmail, "Credit Referrer"), request.id());
-                    requests.confirmSubmission(authentication(seekerEmail, "Credit Seeker"), request.id(), responseId);
+                    requests.markSubmitted(authentication(referrerEmail, "Credit Referrer"), request.id(), screenshot());
+                    approve(adminAuthentication(suffix + referralNumber), responseId);
                     assertEquals(1, count("referrals", "referrer_id = ? AND candidate_id = ? AND company_id = ?",
                             referrerId, seekerId, companyId));
                 }
@@ -692,8 +926,8 @@ class CompanyReferralRequestFlowTests {
                         new CreateRequest(referralCompanyId, "Referral Role", "https://jobs.example.test/role", "", true, false));
                 requests.accept(authentication(referrerEmail, "Refund Referrer"), earnedFor.id(), new AcceptRequest(false, false));
                 long earnedResponseId = responseIdFor(requests.inbox(authentication(referrerEmail, "Refund Referrer")), earnedFor.id());
-                requests.markSubmitted(authentication(referrerEmail, "Refund Referrer"), earnedFor.id());
-                requests.confirmSubmission(authentication(seekerEmail, "Refund Seeker"), earnedFor.id(), earnedResponseId);
+                requests.markSubmitted(authentication(referrerEmail, "Refund Referrer"), earnedFor.id(), screenshot());
+                approve(adminAuthentication(suffix), earnedResponseId);
 
                 for (int requestNumber = 1; requestNumber <= 5; requestNumber++) {
                     requests.create(authentication(referrerEmail, "Refund Referrer"),
@@ -806,6 +1040,35 @@ class CompanyReferralRequestFlowTests {
             jdbc.sql("DELETE FROM users WHERE id IN (?, ?, ?)")
                     .params(referrerId, firstSeekerId, secondSeekerId).update();
         }
+    }
+
+    private static MockMultipartFile screenshot() {
+        return ScreenshotFixtures.screenshot();
+    }
+
+    /** The hash of the screenshot currently stored, as the admin dashboard sends it with a review. */
+    private String currentSha(long responseId) {
+        entityManager.flush();
+        return jdbc.sql("SELECT sha256 FROM referral_submission_evidence WHERE response_id = ?")
+                .param(responseId).query(String.class).optional().orElse("none");
+    }
+
+    private Map<String, Object> approve(OAuth2AuthenticationToken admin, long responseId) {
+        return reviews.approve(admin, responseId, currentSha(responseId));
+    }
+
+    private Map<String, Object> reject(OAuth2AuthenticationToken admin, long responseId, String note) {
+        return reviews.reject(admin, responseId, note, currentSha(responseId));
+    }
+
+    /** A separate admin account per test, so an admin is never part of the referral under review. */
+    private OAuth2AuthenticationToken adminAuthentication(String suffix) {
+        String email = "admin-" + suffix + "@example.test";
+        if (count("users", "email = ?", email) == 0) {
+            long adminId = insertUser("Admin", email);
+            jdbc.sql("UPDATE users SET is_admin = TRUE WHERE id = ?").param(adminId).update();
+        }
+        return authentication(email, "Admin");
     }
 
     private long insertUser(String name, String email) {

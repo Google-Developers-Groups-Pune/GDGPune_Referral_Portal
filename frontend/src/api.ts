@@ -5,6 +5,7 @@ export type Me = {
   provider: string
   hasProfile: boolean
   isReferrer: boolean
+  isAdmin: boolean
 }
 
 export type Profile = {
@@ -87,6 +88,43 @@ export type ReferralRequestInboxItem = {
   acceptedAt: string | null
   submittedAt: string | null
   remindersSent: number
+  /** Admin review of the submission screenshot: null until one is uploaded. */
+  evidenceStatus: 'pending' | 'approved' | 'rejected' | null
+  evidenceNote: string | null
+}
+
+export type EvidenceStatus = 'pending' | 'approved' | 'rejected'
+
+export type AdminEvidenceItem = {
+  responseId: number
+  requestId: number
+  companyName: string
+  roleTitle: string
+  jobUrl: string | null
+  seekerName: string
+  seekerEmail: string
+  referrerName: string
+  referrerTitle: string | null
+  referrerWorkEmail: string | null
+  acceptedAt: string | null
+  submittedAt: string | null
+  filename: string
+  contentType: string
+  sizeBytes: number
+  /** Identifies the exact screenshot shown; sent back with a review so a replaced one is never judged unseen. */
+  sha256: string
+  uploadedAt: string
+  reviewStatus: EvidenceStatus
+  reviewNote: string | null
+  reviewedAt: string | null
+  reviewerName: string | null
+}
+
+export type AdminEvidenceQueue = {
+  counts: Record<EvidenceStatus, number>
+  /** Most items returned; `counts` covers everything. */
+  limit: number
+  items: AdminEvidenceItem[]
 }
 
 export type Conversation = {
@@ -185,6 +223,27 @@ export async function uploadResume(file: File): Promise<void> {
   })
   if (!res.ok) {
     let message = 'Could not upload the resume.'
+    try {
+      const data = await res.json()
+      if (data?.message) message = data.message
+    } catch {
+    }
+    throw new ApiError(res.status, message)
+  }
+}
+
+/** Marks an accepted referral submitted, with the screenshot an admin will verify. */
+export async function submitReferralScreenshot(requestId: number, file: File): Promise<void> {
+  const form = new FormData()
+  form.set('screenshot', file)
+  const res = await fetch(`/api/referral-requests/${requestId}/submitted`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'X-XSRF-TOKEN': csrfToken() },
+    body: form,
+  })
+  if (!res.ok) {
+    let message = 'Could not upload the screenshot.'
     try {
       const data = await res.json()
       if (data?.message) message = data.message

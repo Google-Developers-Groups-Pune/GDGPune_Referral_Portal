@@ -89,8 +89,11 @@ public class ReferralRequestMaintenance {
         List<ReferralRequestResponse> requestResponses = responses.findByRequestIdOrderByCreatedAt(request.getId());
         boolean hasAccepted = requestResponses.stream().anyMatch(response ->
             java.util.Set.of("accepted", "submitted", "confirmed").contains(response.getStatus()));
+        // A submitted referral is not final until an admin approves its screenshot; a rejection hands it back to
+        // the referrer. Keep the other referrers' invitations until then, so the seeker can still continue.
         boolean hasActiveAssignment = requestResponses.stream().anyMatch(response ->
-            "accepted".equals(response.getStatus()) && response.getSubmittedAt() == null);
+            ("accepted".equals(response.getStatus()) && response.getSubmittedAt() == null)
+                || "submitted".equals(response.getStatus()));
         request.setStatus(hasAccepted ? "closed" : "expired");
         request.setClosedAt(now);
         if (!hasActiveAssignment) {

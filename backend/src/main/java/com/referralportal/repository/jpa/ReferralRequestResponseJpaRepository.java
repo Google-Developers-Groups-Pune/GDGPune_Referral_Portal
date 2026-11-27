@@ -3,6 +3,7 @@ package com.referralportal.repository.jpa;
 import com.referralportal.entity.ReferralRequestResponse;
 import jakarta.persistence.LockModeType;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -20,7 +21,18 @@ public interface ReferralRequestResponseJpaRepository extends JpaRepository<Refe
             + "where r.seeker.id = :seekerId order by rr.createdAt desc")
     List<ReferralRequestResponse> findAssignmentsBySeekerId(@Param("seekerId") long seekerId);
 
+    @Query("select rr from ReferralRequestResponse rr join fetch rr.request r join fetch r.company join fetch r.seeker "
+            + "join fetch rr.referrer where rr.id in :responseIds")
+    List<ReferralRequestResponse> findWithDetailsByIdIn(@Param("responseIds") Collection<Long> responseIds);
+
     List<ReferralRequestResponse> findByRequestIdOrderByCreatedAt(Long requestId);
+
+    /** Whether this referrer already submitted (or had verified) a referral for the same person at the same company. */
+    @Query("select case when count(rr) > 0 then true else false end from ReferralRequestResponse rr "
+            + "where rr.referrer.id = :referrerId and rr.request.seeker.id = :seekerId "
+            + "and rr.request.company.id = :companyId and rr.status in ('submitted', 'confirmed') and rr.id <> :excludeId")
+    boolean existsOtherSubmission(@Param("referrerId") long referrerId, @Param("seekerId") long seekerId,
+            @Param("companyId") long companyId, @Param("excludeId") long excludeId);
 
     Optional<ReferralRequestResponse> findByRequestIdAndReferrerId(Long requestId, Long referrerId);
 

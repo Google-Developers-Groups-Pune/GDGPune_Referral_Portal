@@ -42,6 +42,9 @@ class ApiControllerRouteTests {
         assertTrue(paths.contains("/api/referrer/settings"));
         assertTrue(paths.contains("/api/referrer/verify/start"));
         assertTrue(paths.contains("/api/referral-requests"));
+        assertTrue(paths.contains("/api/admin/referral-evidence"));
+        assertFalse(paths.contains("/api/referral-requests/{requestId}/responses/{responseId}/confirm"));
+        assertTrue(paths.contains("/admin"));
         assertTrue(paths.contains("/companies"));
         assertFalse(paths.contains("/api/api/me"));
     }

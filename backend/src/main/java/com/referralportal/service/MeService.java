@@ -15,6 +15,8 @@ public class MeService {
     private UserService users;
     @Autowired
     private MeRepository meRepository;
+    @Autowired
+    private AdminAccess adminAccess;
 
     public Map<String, Object> get(Authentication auth) {
         CurrentUser user = users.current(auth);
@@ -25,6 +27,7 @@ public class MeService {
         body.put("provider", user.provider());
         body.put("hasProfile", meRepository.hasProfile(user.id()));
         body.put("isReferrer", meRepository.isVerifiedReferrer(user.id()));
+        body.put("isAdmin", adminAccess.isAdmin(user.id()));
         return body;
     }
 }

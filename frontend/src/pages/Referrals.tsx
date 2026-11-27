@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Archive, Check, ChevronDown, Clock, Copy, Download, ExternalLink, Inbox, Mail, Phone, Send } from 'lucide-react'
+import { Archive, Check, ChevronDown, Clock, Copy, Download, ExternalLink, ImageUp, Inbox, Mail, Phone, Send, ShieldAlert, ShieldCheck } from 'lucide-react'
 import { AnimatePresence } from 'motion/react'
 import * as m from 'motion/react-m'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { api, downloadPdf, type ReferralRequestInboxItem, type SeekerReferralRequest } from '../api'
+import { api, downloadPdf, submitReferralScreenshot, type ReferralRequestInboxItem, type SeekerReferralRequest } from '../api'
 import { CompanyLogo } from '../CompanyLogo'
 import { celebrate, failure, haptic, success } from '../feedback'
 import { inboxQuery, sentRequestsQuery } from '../queries'
@@ -12,8 +12,8 @@ import { Avatar, Button, Card, Chip, ConfirmSheet, EmptyState, ErrorNote, PageTi
 
 type RequestAction =
   | { kind: 'accept'; requestId: number; shareReferrerEmail: boolean; shareReferrerPhone: boolean }
-  | { kind: 'decline' | 'cancel' | 'submitted' | 'continue'; requestId: number }
-  | { kind: 'confirm'; requestId: number; responseId: number }
+  | { kind: 'decline' | 'cancel' | 'continue'; requestId: number }
+  | { kind: 'submitted'; requestId: number; file: File }
 
 type CardProps = {
   act: (action: RequestAction) => void
@@ -29,8 +29,8 @@ const statuses: Record<string, { text: string; tone: number }> = {
   accepted: { text: 'Accepted', tone: 3 },
   declined: { text: 'Declined', tone: 1 },
   expired: { text: 'Expired', tone: 1 },
-  submitted: { text: 'Submitted', tone: 0 },
-  confirmed: { text: 'Confirmed', tone: 3 },
+  submitted: { text: 'Awaiting verification', tone: 2 },
+  confirmed: { text: 'Verified', tone: 3 },
   closed: { text: 'Closed', tone: 1 },
   awaiting_seeker: { text: 'Your decision', tone: 2 },
   accepted_elsewhere: { text: 'Another referrer accepted', tone: 1 },
@@ -44,9 +44,9 @@ function isRunning(running: RequestAction | null, kind: RequestAction['kind'], r
   return running?.kind === kind && running.requestId === requestId
 }
 
-const STEPS = ['Sent', 'Accepted', 'Submitted', 'Confirmed']
+const STEPS = ['Sent', 'Accepted', 'Submitted', 'Verified']
 
-/** How far the furthest response has come: 0 sent, 1 accepted, 2 submitted, 3 confirmed. */
+/** How far the furthest response has come: 0 sent, 1 accepted, 2 submitted, 3 verified by an admin. */
 function progressOf(request: SeekerReferralRequest) {
   return request.responses.reduce((best, response) => {
     const at = response.status === 'confirmed' ? 3 : response.status === 'submitted' ? 2 : response.status === 'accepted' ? 1 : 0
@@ -162,10 +162,11 @@ function SeekerRequestCard({ request, act, running, index }: CardProps & { reque
                   <Chip tone={responseStatus.tone}>{responseStatus.text}</Chip>
                 </div>
                 <ContactLinks email={response.referrerEmail} phone={response.referrerPhone} />
-                {response.submittedAt && response.status === 'submitted' && (
-                  <Button variant="success" className="w-full" disabled={running !== null} loading={isRunning(running, 'confirm', request.id)} onClick={() => act({ kind: 'confirm', requestId: request.id, responseId: response.responseId })}>
-                    Confirm that they submitted your referral
-                  </Button>
+                {response.status === 'submitted' && (
+                  <p className="flex items-start gap-2 text-xs text-muted">
+                    <ShieldCheck size={14} className="mt-0.5 shrink-0" aria-hidden />
+                    <span>They uploaded proof of submission. An admin is verifying it now. Nothing is needed from you.</span>
+                  </p>
                 )}
               </div>
             )
@@ -188,6 +189,94 @@ function SeekerRequestCard({ request, act, running, index }: CardProps & { reque
         onConfirm={() => act({ kind: 'cancel', requestId: request.id })}
       />
     </Card>
+  )
+}
+
+const SCREENSHOT_TYPES = ['image/png', 'image/jpeg', 'image/webp']
+const MAX_SCREENSHOT_BYTES = 5 * 1024 * 1024
+
+/** The referrer marks the referral submitted by uploading proof, which an admin then verifies. */
+function ScreenshotSubmit({ item, act, running }: CardProps & { item: ReferralRequestInboxItem }) {
+  const [chosen, setChosen] = useState<{ file: File; preview: string } | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const inputId = `screenshot-${item.responseId}`
+  const file = chosen?.file ?? null
+  const preview = chosen?.preview ?? null
+
+  // Frees the preview's memory when it is replaced or the card goes away.
+  useEffect(() => {
+    const url = chosen?.preview
+    return () => {
+      if (url) URL.revokeObjectURL(url)
+    }
+  }, [chosen])
+
+  const pick = (picked: File | undefined) => {
+    if (!picked) return
+    // Checked here for an instant answer; the server still checks the file itself.
+    if (!SCREENSHOT_TYPES.includes(picked.type)) failure(new Error('Upload the screenshot as a PNG, JPEG or WebP image.'))
+    else if (picked.size > MAX_SCREENSHOT_BYTES) failure(new Error('The screenshot must be 5 MB or smaller.'))
+    else setChosen({ file: picked, preview: URL.createObjectURL(picked) })
+  }
+
+  return (
+    <div className="space-y-3 rounded-2xl border border-line p-4">
+      <div>
+        <p className="text-sm font-bold">Submitted it? Upload a screenshot as proof</p>
+        <p className="mt-0.5 text-xs text-muted">
+          Show the referral in your employer’s system with the candidate’s name and role visible. Blur anything confidential. An admin checks it before the referral counts and any credit is given.
+        </p>
+      </div>
+      <label
+        htmlFor={inputId}
+        onDragOver={(event) => {
+          event.preventDefault()
+          setDragging(true)
+        }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={(event) => {
+          event.preventDefault()
+          setDragging(false)
+          pick(event.dataTransfer.files[0])
+        }}
+        className={`press flex min-h-28 cursor-pointer flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed p-3 text-center text-sm font-semibold transition-colors ${dragging ? 'border-primary bg-gblue/8 text-primary' : 'border-line text-muted hover:border-primary/40 hover:text-primary'}`}
+      >
+        {preview ? (
+          <img src={preview} alt="Selected screenshot" className="max-h-56 w-auto rounded-xl object-contain" />
+        ) : (
+          <>
+            <ImageUp size={24} aria-hidden />
+            <span>Choose or drop a screenshot</span>
+            <span className="text-xs font-normal">PNG, JPEG or WebP, up to 5 MB</span>
+          </>
+        )}
+      </label>
+      <input
+        id={inputId}
+        type="file"
+        accept={SCREENSHOT_TYPES.join(',')}
+        className="sr-only"
+        onChange={(event) => {
+          pick(event.target.files?.[0])
+          event.target.value = ''
+        }}
+      />
+      {file && (
+        <div className="flex items-center justify-between gap-3 text-xs text-muted">
+          <span className="min-w-0 truncate">{file.name} · {Math.ceil(file.size / 1024)} KB</span>
+          <button type="button" onClick={() => setChosen(null)} className="press shrink-0 rounded-full px-2 py-1 font-semibold hover:text-danger">Remove</button>
+        </div>
+      )}
+      <Button
+        variant="success"
+        className="w-full"
+        disabled={!file || running !== null}
+        loading={isRunning(running, 'submitted', item.requestId)}
+        onClick={() => file && act({ kind: 'submitted', requestId: item.requestId, file })}
+      >
+        Mark submitted and send for verification
+      </Button>
+    </div>
   )
 }
 
@@ -285,6 +374,12 @@ function ReferrerInboxCard({ item, act, running, index }: CardProps & { item: Re
       {item.status === 'accepted' && (
         <div className="space-y-3 border-t border-line pt-4">
           <ContactLinks email={item.seekerEmail} phone={item.seekerPhone} />
+          {item.evidenceStatus === 'rejected' && (
+            <div role="alert" className="flex items-start gap-2.5 rounded-2xl bg-gred/10 p-3 text-sm text-danger">
+              <ShieldAlert size={17} className="mt-0.5 shrink-0" aria-hidden />
+              <span className="min-w-0 break-words"><b>Your screenshot was not accepted.</b> {item.evidenceNote} Upload a new one below.</span>
+            </div>
+          )}
           <p className="text-sm font-semibold text-referrer">Review and copy the referral packet before submitting it to your employer.</p>
           <Button
             className="w-full"
@@ -311,10 +406,15 @@ function ReferrerInboxCard({ item, act, running, index }: CardProps & { item: Re
               </m.div>
             )}
           </AnimatePresence>
-          <Button variant="outline" disabled={running !== null} loading={isRunning(running, 'submitted', item.requestId)} className="w-full" onClick={() => act({ kind: 'submitted', requestId: item.requestId })}>After your employer submission, mark referral submitted</Button>
+          <ScreenshotSubmit item={item} act={act} running={running} />
         </div>
       )}
-      {item.status === 'submitted' && <p className="text-sm text-muted">Waiting for the seeker to confirm your submission. Reminders sent: {item.remindersSent} of 3.</p>}
+      {item.status === 'submitted' && (
+        <p className="flex items-start gap-2 text-sm text-muted">
+          <ShieldCheck size={16} className="mt-0.5 shrink-0 text-primary" aria-hidden />
+          <span>An admin is verifying your screenshot. If you can earn a credit, you get it once the screenshot is approved.</span>
+        </p>
+      )}
       <ConfirmSheet
         open={confirmDecline}
         title={`Decline ${item.seekerName}’s request?`}
@@ -364,8 +464,8 @@ export default function ReferralsPage() {
           body: { shareReferrerEmail: input.shareReferrerEmail, shareReferrerPhone: input.shareReferrerPhone },
         })
       }
-      if (input.kind === 'confirm') {
-        return api(`/api/referral-requests/${input.requestId}/responses/${input.responseId}/confirm`, { method: 'POST' })
+      if (input.kind === 'submitted') {
+        return submitReferralScreenshot(input.requestId, input.file)
       }
       return api(`/api/referral-requests/${input.requestId}/${input.kind}`, { method: 'POST' })
     },
@@ -377,11 +477,7 @@ export default function ReferralsPage() {
           break
         case 'submitted':
           celebrate()
-          success('Marked as submitted', 'The seeker will be asked to confirm it.')
-          break
-        case 'confirm':
-          celebrate()
-          success('Referral confirmed', 'Good luck with the next step!')
+          success('Sent for verification', 'An admin will check your screenshot.')
           break
         case 'continue':
           success('Request reopened', 'Other verified referrers can see it now.')
@@ -474,7 +570,7 @@ export default function ReferralsPage() {
           {shownInboxItems.length === 0 ? (
             activeInboxView === 'active'
               ? <EmptyState icon={Inbox} title="No active requests" text="Pending requests and accepted referrals will appear here." />
-              : <EmptyState icon={Archive} title="No referral history yet" text="Declined, expired, confirmed, and closed referrals will appear here." />
+              : <EmptyState icon={Archive} title="No referral history yet" text="Declined, expired, verified, and closed referrals will appear here." />
           ) : (
             <AnimatedList items={shownInboxItems} keyOf={(item) => item.responseId}>
               {(item, i) => <ReferrerInboxCard item={item} index={i} {...cardProps} />}

@@ -1,24 +1,25 @@
 package com.referralportal.service;
 
 import com.referralportal.common.ChipLists;
+import com.referralportal.common.ScreenshotImages;
+import com.referralportal.common.ScreenshotImages.Screenshot;
 import com.referralportal.dto.ReferralRequestDtos;
 import com.referralportal.entity.Company;
 import com.referralportal.entity.CompanyReferralRequest;
 import com.referralportal.entity.Profile;
-import com.referralportal.entity.Referral;
-import com.referralportal.entity.ReferralRequestCredit;
 import com.referralportal.entity.ReferralRequestResponse;
 import com.referralportal.entity.ReferralRequestResume;
+import com.referralportal.entity.ReferralSubmissionEvidence;
 import com.referralportal.entity.ReferrerProfile;
 import com.referralportal.entity.ResumeFile;
 import com.referralportal.entity.User;
 import com.referralportal.repository.jpa.CompanyJpaRepository;
 import com.referralportal.repository.jpa.CompanyReferralRequestJpaRepository;
-import com.referralportal.repository.jpa.OpenRoleJpaRepository;
 import com.referralportal.repository.jpa.ProfileJpaRepository;
 import com.referralportal.repository.jpa.ReferralJpaRepository;
-import com.referralportal.repository.jpa.ReferralRequestCreditJpaRepository;
 import com.referralportal.repository.jpa.ReferralRequestResponseJpaRepository;
+import com.referralportal.repository.jpa.ReferralSubmissionEvidenceJpaRepository;
+import com.referralportal.repository.jpa.ReferralSubmissionEvidenceJpaRepository.ReviewState;
 import com.referralportal.repository.jpa.ReferrerProfileJpaRepository;
 import com.referralportal.repository.jpa.ResumeFileJpaRepository;
 import com.referralportal.repository.jpa.ReferralRequestResumeJpaRepository;
@@ -26,17 +27,19 @@ import com.referralportal.repository.jpa.UserJpaRepository;
 import com.referralportal.user.CurrentUser;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import static com.referralportal.dto.ReferralRequestDtos.AcceptRequest;
@@ -49,7 +52,6 @@ import static com.referralportal.dto.ReferralRequestDtos.SeekerResponse;
 public class CompanyReferralRequestService {
 
     private static final int REQUEST_DAYS = 4;
-    private static final int CREDIT_DAYS = 90;
 
     @Autowired
     private UserService users;
@@ -66,11 +68,7 @@ public class CompanyReferralRequestService {
     @Autowired
     private ReferralRequestResponseJpaRepository responses;
     @Autowired
-    private ReferralRequestCreditJpaRepository credits;
-    @Autowired
     private ReferralJpaRepository referrals;
-    @Autowired
-    private OpenRoleJpaRepository openRoles;
     @Autowired
     private ReferralRequestBudget budget;
     @Autowired
@@ -79,6 +77,8 @@ public class CompanyReferralRequestService {
     private ResumeFileJpaRepository resumeFiles;
     @Autowired
     private ReferralRequestResumeJpaRepository requestResumes;
+    @Autowired
+    private ReferralSubmissionEvidenceJpaRepository evidenceRows;
 
     /**
      * Creations serialize on the seeker's user row. READ_COMMITTED is required as well: resolving
@@ -176,8 +176,11 @@ public class CompanyReferralRequestService {
         }
         List<Long> requestIds = inbox.stream().map(response -> response.getRequest().getId()).toList();
         Set<Long> requestIdsWithResume = Set.copyOf(requestResumes.findRequestIdsWithResume(requestIds));
+        Map<Long, ReviewState> reviews = evidenceRows.findReviewStates(
+                inbox.stream().map(ReferralRequestResponse::getId).toList()).stream()
+                .collect(Collectors.toMap(ReviewState::getResponseId, Function.identity()));
         return inbox.stream().map(response -> inboxItem(response,
-                requestIdsWithResume.contains(response.getRequest().getId()))).toList();
+                requestIdsWithResume.contains(response.getRequest().getId()), reviews.get(response.getId()))).toList();
     }
 
     @Transactional
@@ -347,9 +350,19 @@ public class CompanyReferralRequestService {
         return Map.of("status", request.getStatus());
     }
 
-    @Transactional
-    public Map<String, Object> markSubmitted(Authentication authentication, long requestId) {
+    /**
+     * The referrer marks the referral submitted by uploading a screenshot as evidence. The response then waits
+     * for an admin to review it (see {@link ReferralEvidenceReviewService}); only approval confirms the
+     * referral, records it in {@code referrals} and may award the referrer a credit.
+     *
+     * <p>READ_COMMITTED for the same reason as {@link #create}: resolving the user reads before the request lock,
+     * and under REPEATABLE_READ the status checks would use that older snapshot, so an upload that waited for the
+     * lock could replace a screenshot submitted, or even approved, in the meantime.
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public Map<String, Object> markSubmitted(Authentication authentication, long requestId, MultipartFile screenshotFile) {
         long referrerId = users.current(authentication).id();
+        Screenshot screenshot = ScreenshotImages.read(screenshotFile);
         ReferralRequestResponse response = ownedResponse(requestId, referrerId, true);
         if ("submitted".equals(response.getStatus()) || "confirmed".equals(response.getStatus())) {
             return Map.of("status", response.getStatus());
@@ -358,61 +371,34 @@ public class CompanyReferralRequestService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Only an accepted referral can be marked submitted.");
         }
         Instant now = Instant.now();
-        if (referrals.existsByReferrerIdAndCandidateIdAndCompanyId(referrerId,
-            response.getRequest().getSeeker().getId(), response.getRequest().getCompany().getId())) {
+        long seekerId = response.getRequest().getSeeker().getId();
+        long companyId = response.getRequest().getCompany().getId();
+        // Serializes this referrer's submissions across requests, so two roles at one company cannot both slip in.
+        referrerProfiles.findByUserIdForUpdate(referrerId);
+        if (referrals.existsByReferrerIdAndCandidateIdAndCompanyId(referrerId, seekerId, companyId)
+                || responses.existsOtherSubmission(referrerId, seekerId, companyId, response.getId())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "You have already referred this person at your company.");
         }
-        Referral referral = new Referral();
-        referral.setReferrer(response.getReferrer());
-        referral.setCandidate(response.getRequest().getSeeker());
-        referral.setCompany(response.getRequest().getCompany());
-        openRoles.findFirstByCompanyIdAndTitle(response.getRequest().getCompany().getId(),
-            response.getRequest().getRoleTitle()).ifPresent(referral::setRole);
-        referral.setStatus("submitted");
-        referral.setCreatedAt(now);
-        referral.setUpdatedAt(now);
-        referrals.save(referral);
+        // A screenshot rejected earlier is replaced, so the admin always reviews the latest upload.
+        ReferralSubmissionEvidence evidence = evidenceRows.findByIdForUpdate(response.getId())
+                .orElseGet(ReferralSubmissionEvidence::new);
+        evidence.setResponseId(response.getId());
+        evidence.setFilename(screenshot.filename());
+        evidence.setContentType(screenshot.contentType());
+        evidence.setSizeBytes(screenshot.data().length);
+        evidence.setSha256(screenshot.sha256());
+        evidence.setData(screenshot.data());
+        evidence.setUploadedAt(now);
+        evidence.setReviewStatus(ReferralSubmissionEvidence.PENDING);
+        evidence.setReviewedBy(null);
+        evidence.setReviewedAt(null);
+        evidence.setReviewNote(null);
+        evidenceRows.save(evidence);
         response.setStatus("submitted");
         response.setSubmittedAt(now);
         responses.save(response);
         notifications.submitted(response.getRequest(), response);
         return Map.of("status", response.getStatus());
-    }
-
-    @Transactional
-    public Map<String, Object> confirmSubmission(Authentication authentication, long requestId, long responseId) {
-        long seekerId = users.current(authentication).id();
-        CompanyReferralRequest request = requests.findByIdForUpdate(requestId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Referral request not found."));
-        ReferralRequestResponse response = responses.findByIdForUpdate(responseId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Submitted referral not found."));
-        if (!response.getRequest().getId().equals(request.getId()) || !request.getSeeker().getId().equals(seekerId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN);
-        }
-        if ("confirmed".equals(response.getStatus())) {
-            return Map.of("status", response.getStatus(), "creditAwarded", credits.findBySourceResponseId(response.getId()).isPresent());
-        }
-        if (!"submitted".equals(response.getStatus())) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "This referral has not been marked submitted.");
-        }
-        Instant now = Instant.now();
-        response.setStatus("confirmed");
-        response.setConfirmedAt(now);
-        responses.save(response);
-        boolean awarded = false;
-        ReferrerProfile referrer = referrerProfiles.findByUserIdForUpdate(response.getReferrer().getId()).orElse(null);
-        if (referrer != null && budget.mayEarnAnother(response.getReferrer().getId(), now)
-                && credits.findBySourceResponseId(response.getId()).isEmpty()) {
-            ReferralRequestCredit credit = new ReferralRequestCredit();
-            credit.setUser(response.getReferrer());
-            credit.setSourceResponse(response);
-            credit.setCreatedAt(now);
-            credit.setExpiresAt(now.plus(CREDIT_DAYS, ChronoUnit.DAYS));
-            credits.save(credit);
-            awarded = true;
-        }
-        notifications.confirmed(response.getRequest(), response);
-        return Map.of("status", response.getStatus(), "creditAwarded", awarded);
     }
 
     private ReferralRequestResponse ownedResponse(long requestId, long referrerId, boolean requireAccepted) {
@@ -466,7 +452,7 @@ public class CompanyReferralRequestService {
             pending, declined, canContinue, otherReferrers, "expired".equals(request.getStatus()), accepted);
     }
 
-    private ReferrerInboxItem inboxItem(ReferralRequestResponse response, boolean hasResumeSnapshot) {
+    private ReferrerInboxItem inboxItem(ReferralRequestResponse response, boolean hasResumeSnapshot, ReviewState review) {
         CompanyReferralRequest request = response.getRequest();
         User seeker = request.getSeeker();
         Profile profile = profiles.findById(seeker.getId()).orElse(null);
@@ -494,7 +480,8 @@ public class CompanyReferralRequestService {
                 profileShared ? profile.getPortfolioUrl() : null,
                 request.getSeekerNote(), canSharePhone, email, phone, resumeAvailable,
             response.getStatus(), time(response.getCreatedAt()),
-                time(response.getAcceptedAt()), time(response.getSubmittedAt()), response.getRemindersSent());
+                time(response.getAcceptedAt()), time(response.getSubmittedAt()), response.getRemindersSent(),
+                review == null ? null : review.getReviewStatus(), review == null ? null : review.getReviewNote());
     }
 
     private static String blankToNull(String value) {

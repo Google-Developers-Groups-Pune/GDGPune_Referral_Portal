@@ -4,7 +4,9 @@ import {
   fetchMe,
   fetchNotifications,
   fetchUnreadCount,
+  type AdminEvidenceQueue,
   type Badge,
+  type EvidenceStatus,
   type Companies,
   type Profile,
   type ReferralRequestInboxItem,
@@ -50,6 +52,17 @@ export const sentRequestsQuery = queryOptions({
 export const inboxQuery = queryOptions({
   queryKey: ['referral-request-inbox'],
   queryFn: () => api<ReferralRequestInboxItem[]>('/api/referral-requests/inbox'),
+})
+
+export const adminEvidenceQuery = (status: EvidenceStatus) => queryOptions({
+  queryKey: ['admin-evidence', status],
+  queryFn: () => api<AdminEvidenceQueue>(`/api/admin/referral-evidence?status=${status}`),
+})
+
+/** Counts only, for the Admin tab badge; shares the 'admin-evidence' prefix so reviews refresh it. */
+export const adminEvidenceCountsQuery = queryOptions({
+  queryKey: ['admin-evidence', 'counts'],
+  queryFn: () => api<Record<EvidenceStatus, number>>('/api/admin/referral-evidence/counts'),
 })
 
 export const unreadQuery = queryOptions({

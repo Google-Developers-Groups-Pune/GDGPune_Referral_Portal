@@ -24,13 +24,13 @@ class ApiExceptionHandler {
     @ExceptionHandler(MissingServletRequestPartException.class)
     ResponseEntity<ErrorBody> missingPart(MissingServletRequestPartException e) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(new ErrorBody("Choose a PDF file to upload."));
+                .body(new ErrorBody("Choose a file to upload."));
     }
 
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     ResponseEntity<ErrorBody> tooLarge(MaxUploadSizeExceededException e) {
         return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
-                .body(new ErrorBody("Resume must be 5 MB or smaller."));
+                .body(new ErrorBody("Files must be 5 MB or smaller."));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

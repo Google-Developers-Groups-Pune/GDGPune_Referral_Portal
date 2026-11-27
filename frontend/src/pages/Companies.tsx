@@ -160,11 +160,12 @@ function ReferralRequestSheet({ company, open, requestsLeft, onClose }: {
   )
 }
 
-const STAGES = ['Sent', 'Accepted', 'Submitted', 'Confirmed']
+const STAGES = ['Sent', 'Accepted', 'Submitted', 'Verified']
+const STAGE_STATUSES = ['pending', 'accepted', 'submitted', 'confirmed']
 
-/** 0 sent, 1 accepted, 2 submitted, 3 confirmed. */
+/** 0 sent, 1 accepted, 2 submitted, 3 verified by an admin. */
 function stageOf(request: SeekerReferralRequest) {
-  return Math.max(0, ...request.responses.map((x) => STAGES.findIndex((stage) => stage.toLowerCase() === x.status)))
+  return Math.max(0, ...request.responses.map((x) => STAGE_STATUSES.indexOf(x.status)))
 }
 
 function isLive(request: SeekerReferralRequest) {
