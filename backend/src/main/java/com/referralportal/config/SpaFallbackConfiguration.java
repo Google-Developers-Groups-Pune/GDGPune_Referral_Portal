@@ -34,8 +34,9 @@ public class SpaFallbackConfiguration implements WebMvcConfigurer {
 
         @Override
         protected Resource getResource(String resourcePath, Resource location) throws IOException {
-            Resource requested = location.createRelative(resourcePath);
-            if (!resourcePath.isEmpty() && requested.exists() && requested.isReadable()) {
+            // super applies PathResourceResolver's checks, including that the file stays under the location.
+            Resource requested = resourcePath.isEmpty() ? null : super.getResource(resourcePath, location);
+            if (requested != null) {
                 return requested;
             }
             if (!isSpaRoute(resourcePath)) {
@@ -47,7 +48,8 @@ public class SpaFallbackConfiguration implements WebMvcConfigurer {
 
         static boolean isSpaRoute(String resourcePath) {
             for (String prefix : BACKEND_PREFIXES) {
-                if (resourcePath.startsWith(prefix)) {
+                // Exclude the namespace itself (e.g. "login") as well as everything under it.
+                if (resourcePath.startsWith(prefix) || resourcePath.equals(prefix.substring(0, prefix.length() - 1))) {
                     return false;
                 }
             }
