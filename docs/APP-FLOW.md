@@ -99,8 +99,10 @@ Spring Security OAuth2 login → [UserService.java](/d:/GDG/Referral-Portal/back
 1. The browser submits the name, email, and password. The backend normalizes the email, validates
   the password, and applies registration rate limits. If the email can be registered, it stores a
   pending-registration row with the password and OTP hashes, then emails a six-digit code. It does
-  not create a `users` row or session yet. The response is generic to avoid revealing whether an
-  account already exists.
+  not create a `users` row or session yet. If an account with that email already exists, no code is
+  sent and the backend returns `409 Conflict` with a message telling the user how to sign in
+  (Google, GitHub, or email and password, based on the account's provider). The rate limits above
+  run first, which bounds how quickly anyone can probe for registered emails.
 2. The code expires after ten minutes and permits at most five incorrect attempts. Resending a code
   is rate limited; a new code replaces the previous pending registration for that email.
 3. The browser submits the email, code, and original password. The backend validates the code,

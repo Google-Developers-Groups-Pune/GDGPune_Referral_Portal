@@ -212,7 +212,7 @@ export default function SignIn({ loginError }: { loginError: boolean }) {
           </Reveal>
           <Reveal show={awaitingCode}>
             <label className="text-sm font-semibold" htmlFor="registration-code">Email verification code</label>
-            <p className="mb-3 mt-1 text-xs text-muted">If <b className="text-ink">{email}</b> can be registered, a code has been sent. It expires in 10 minutes.</p>
+            <p className="mb-3 mt-1 text-xs text-muted">A code has been sent to <b className="text-ink">{email}</b>. It expires in 10 minutes.</p>
             <OtpInput id="registration-code" value={registrationCode} onChange={enterCode} disabled={registrationPending} />
             <div className="mt-2 flex flex-wrap justify-between gap-2 text-xs font-semibold text-primary">
               <button type="button" disabled={registrationPending} onClick={() => { verifyRegistration.reset(); beginRegistration.mutate() }} className="press rounded-full py-2 disabled:opacity-60">Resend code</button>

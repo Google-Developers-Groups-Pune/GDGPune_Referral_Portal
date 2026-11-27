@@ -110,7 +110,11 @@ class PasswordRegistrationVerificationTests {
         String email = "oauth-owner-" + suffix + "@example.test";
         userRepository.createAccount("OAuth Owner", email, "google", "oauth-" + suffix.substring(0, 12));
 
-        auth.beginRegistration("Impersonator", email, "correct horse 42", "127.0.0.1");
+        ResponseStatusException rejected = assertThrows(ResponseStatusException.class,
+                () -> auth.beginRegistration("Impersonator", email, "correct horse 42", "127.0.0.1"));
+        assertThat(rejected.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(rejected.getReason())
+                .isEqualTo("This email is already registered. Please sign in using Google instead.");
 
         var existing = users.findByEmail(email).orElseThrow();
         assertThat(existing.getAuthProvider()).isEqualTo("google");

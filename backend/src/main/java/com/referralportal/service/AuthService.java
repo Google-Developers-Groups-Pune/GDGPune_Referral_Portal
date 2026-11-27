@@ -56,8 +56,9 @@ public class AuthService {
         validatePasswordLength(rawPassword);
         String normalizedEmail = normalizeEmail(email);
         loginAttemptRateLimiter.checkRegistrationAllowed(normalizedEmail, clientIp);
-        if (userJpa.findByEmail(normalizedEmail).isPresent()) {
-            return;
+        var existing = userJpa.findByEmail(normalizedEmail);
+        if (existing.isPresent()) {
+            throw emailAlreadyRegistered(existing.get().getAuthProvider());
         }
 
         String code = String.format(Locale.ROOT, "%06d", RANDOM.nextInt(1_000_000));
@@ -130,6 +131,16 @@ public class AuthService {
     private static ResponseStatusException emailTaken() {
         return new ResponseStatusException(HttpStatus.CONFLICT,
                 "An account with this email already exists. Try signing in instead.");
+    }
+
+    private static ResponseStatusException emailAlreadyRegistered(String authProvider) {
+        String howToSignIn = switch (authProvider == null ? "" : authProvider) {
+            case "google" -> "Google";
+            case "github" -> "GitHub";
+            default -> "your existing email and password";
+        };
+        return new ResponseStatusException(HttpStatus.CONFLICT,
+                "This email is already registered. Please sign in using " + howToSignIn + " instead.");
     }
 
     private static String normalizeEmail(String email) {
