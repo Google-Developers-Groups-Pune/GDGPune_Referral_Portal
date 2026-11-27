@@ -30,6 +30,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -104,13 +105,28 @@ public class ReferralEvidenceReviewService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Screenshot not found."));
     }
 
-    @Transactional
-    public Map<String, Object> approve(Authentication authentication, long responseId) {
+    /**
+     * READ_COMMITTED: resolving the admin reads before any lock is taken, and under REPEATABLE_READ the
+     * duplicate-referral and credit-cap checks below would still use that older snapshot even after waiting
+     * for another approval of the same referrer to commit.
+     */
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public Map<String, Object> approve(Authentication authentication, long responseId, String expectedSha256) {
         User admin = access.requireAdmin(authentication);
-        Locked locked = lockForReview(admin, responseId);
+        Locked locked = lockForReview(admin, responseId, expectedSha256);
         ReferralRequestResponse response = locked.response();
         ReferralSubmissionEvidence evidence = locked.evidence();
+        CompanyReferralRequest request = response.getRequest();
         Instant now = Instant.now();
+
+        // One approval at a time per referrer: the duplicate check and the credit cap both depend on it.
+        ReferrerProfile referrer = referrerProfiles.findByUserIdForUpdate(response.getReferrer().getId()).orElse(null);
+        if (referrals.existsByReferrerIdAndCandidateIdAndCompanyId(response.getReferrer().getId(),
+                request.getSeeker().getId(), request.getCompany().getId())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "This referrer already has a verified referral for "
+                    + request.getSeeker().getName() + " at " + request.getCompany().getName()
+                    + ". Reject this screenshot instead.");
+        }
 
         response.setStatus("confirmed");
         response.setConfirmedAt(now);
@@ -121,23 +137,31 @@ public class ReferralEvidenceReviewService {
         evidence.setReviewNote(null);
         evidenceRows.save(evidence);
 
-        CompanyReferralRequest request = response.getRequest();
-        if (!referrals.existsByReferrerIdAndCandidateIdAndCompanyId(response.getReferrer().getId(),
-                request.getSeeker().getId(), request.getCompany().getId())) {
-            Referral referral = new Referral();
-            referral.setReferrer(response.getReferrer());
-            referral.setCandidate(request.getSeeker());
-            referral.setCompany(request.getCompany());
-            openRoles.findFirstByCompanyIdAndTitle(request.getCompany().getId(), request.getRoleTitle())
-                    .ifPresent(referral::setRole);
-            referral.setStatus("submitted");
-            referral.setCreatedAt(response.getSubmittedAt() == null ? now : response.getSubmittedAt());
-            referral.setUpdatedAt(now);
-            referrals.save(referral);
+        Referral referral = new Referral();
+        referral.setReferrer(response.getReferrer());
+        referral.setCandidate(request.getSeeker());
+        referral.setCompany(request.getCompany());
+        openRoles.findFirstByCompanyIdAndTitle(request.getCompany().getId(), request.getRoleTitle())
+                .ifPresent(referral::setRole);
+        referral.setStatus("submitted");
+        referral.setCreatedAt(response.getSubmittedAt() == null ? now : response.getSubmittedAt());
+        referral.setUpdatedAt(now);
+        referrals.save(referral);
+
+        // Backup invitations were kept open while the review was pending. Once the request window has ended,
+        // the verified referral settles the request, so they are closed now.
+        if (!"open".equals(request.getStatus())) {
+            for (ReferralRequestResponse other : responses.findByRequestIdOrderByCreatedAt(request.getId())) {
+                if (!other.getId().equals(response.getId())
+                        && Set.of("pending", "accepted_elsewhere").contains(other.getStatus())) {
+                    other.setStatus("expired");
+                    other.setClosedAt(now);
+                    responses.save(other);
+                }
+            }
         }
 
         boolean awarded = false;
-        ReferrerProfile referrer = referrerProfiles.findByUserIdForUpdate(response.getReferrer().getId()).orElse(null);
         if (referrer != null && budget.mayEarnAnother(response.getReferrer().getId(), now)
                 && credits.findBySourceResponseId(response.getId()).isEmpty()) {
             ReferralRequestCredit credit = new ReferralRequestCredit();
@@ -153,14 +177,14 @@ public class ReferralEvidenceReviewService {
         return Map.of("status", response.getStatus(), "creditAwarded", awarded);
     }
 
-    @Transactional
-    public Map<String, Object> reject(Authentication authentication, long responseId, String note) {
+    @Transactional(isolation = Isolation.READ_COMMITTED)
+    public Map<String, Object> reject(Authentication authentication, long responseId, String note, String expectedSha256) {
         User admin = access.requireAdmin(authentication);
         String reason = note == null ? "" : note.trim();
         if (reason.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Tell the referrer why the screenshot was rejected.");
         }
-        Locked locked = lockForReview(admin, responseId);
+        Locked locked = lockForReview(admin, responseId, expectedSha256);
         ReferralRequestResponse response = locked.response();
         ReferralSubmissionEvidence evidence = locked.evidence();
         Instant now = Instant.now();
@@ -183,7 +207,7 @@ public class ReferralEvidenceReviewService {
     }
 
     /** Locks request, then response, then evidence: the same order the rest of the referral flow uses. */
-    private Locked lockForReview(User admin, long responseId) {
+    private Locked lockForReview(User admin, long responseId, String expectedSha256) {
         Long requestId = responses.findRequestId(responseId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Submitted referral not found."));
         requests.findByIdForUpdate(requestId)
@@ -200,6 +224,10 @@ public class ReferralEvidenceReviewService {
                 || !ReferralSubmissionEvidence.PENDING.equals(evidence.getReviewStatus())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "This screenshot has already been reviewed.");
         }
+        if (expectedSha256 == null || !expectedSha256.equalsIgnoreCase(evidence.getSha256())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "The referrer uploaded a new screenshot since you opened this one. Review the new one.");
+        }
         return new Locked(response, evidence);
     }
 
@@ -211,7 +239,7 @@ public class ReferralEvidenceReviewService {
                 request.getJobUrl(), request.getSeeker().getName(), request.getSeeker().getEmail(), referrer.getName(),
                 profile == null ? null : profile.getJobTitle(), profile == null ? null : profile.getWorkEmail(),
                 time(response.getAcceptedAt()), time(response.getSubmittedAt()), meta.getFilename(), meta.getContentType(),
-                meta.getSizeBytes(), time(meta.getUploadedAt()), meta.getReviewStatus(), meta.getReviewNote(),
+                meta.getSizeBytes(), meta.getSha256(), time(meta.getUploadedAt()), meta.getReviewStatus(), meta.getReviewNote(),
                 time(meta.getReviewedAt()), meta.getReviewerName());
     }
 

@@ -15,7 +15,7 @@ public interface ReferralSubmissionEvidenceJpaRepository extends JpaRepository<R
 
     /** The review queue without the screenshot bytes; oldest first so nothing waits forever. */
     @Query("select e.responseId as responseId, e.filename as filename, e.contentType as contentType, "
-            + "e.sizeBytes as sizeBytes, e.uploadedAt as uploadedAt, e.reviewStatus as reviewStatus, "
+            + "e.sizeBytes as sizeBytes, e.sha256 as sha256, e.uploadedAt as uploadedAt, e.reviewStatus as reviewStatus, "
             + "e.reviewNote as reviewNote, e.reviewedAt as reviewedAt, reviewer.name as reviewerName "
             + "from ReferralSubmissionEvidence e left join e.reviewedBy reviewer "
             + "where e.reviewStatus = :status order by e.uploadedAt asc")
@@ -40,6 +40,8 @@ public interface ReferralSubmissionEvidenceJpaRepository extends JpaRepository<R
         String getContentType();
 
         long getSizeBytes();
+
+        String getSha256();
 
         Instant getUploadedAt();
 

@@ -27,6 +27,13 @@ public interface ReferralRequestResponseJpaRepository extends JpaRepository<Refe
 
     List<ReferralRequestResponse> findByRequestIdOrderByCreatedAt(Long requestId);
 
+    /** Whether this referrer already submitted (or had verified) a referral for the same person at the same company. */
+    @Query("select case when count(rr) > 0 then true else false end from ReferralRequestResponse rr "
+            + "where rr.referrer.id = :referrerId and rr.request.seeker.id = :seekerId "
+            + "and rr.request.company.id = :companyId and rr.status in ('submitted', 'confirmed') and rr.id <> :excludeId")
+    boolean existsOtherSubmission(@Param("referrerId") long referrerId, @Param("seekerId") long seekerId,
+            @Param("companyId") long companyId, @Param("excludeId") long excludeId);
+
     Optional<ReferralRequestResponse> findByRequestIdAndReferrerId(Long requestId, Long referrerId);
 
         @Lock(LockModeType.PESSIMISTIC_WRITE)

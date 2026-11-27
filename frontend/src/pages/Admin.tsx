@@ -7,7 +7,9 @@ import { celebrate, failure, haptic, success } from '../feedback'
 import { adminEvidenceQuery } from '../queries'
 import { Avatar, Button, Card, Chip, ConfirmSheet, EmptyState, ErrorNote, PageTitle, Segmented, Sheet, SkeletonList } from '../ui'
 
-type Review = { kind: 'approve'; responseId: number } | { kind: 'reject'; responseId: number; note: string }
+type Review =
+  | { kind: 'approve'; responseId: number; sha256: string }
+  | { kind: 'reject'; responseId: number; sha256: string; note: string }
 
 const REJECT_REASONS = [
   'The candidate’s name is not visible.',
@@ -23,8 +25,8 @@ const reviewChips: Record<EvidenceStatus, { text: string; tone: number }> = {
 }
 
 function screenshotUrl(item: AdminEvidenceItem) {
-  // The upload time changes when a referrer replaces a rejected screenshot, so the browser never shows a stale one.
-  return `/api/admin/referral-evidence/${item.responseId}/screenshot?v=${encodeURIComponent(item.uploadedAt)}`
+  // Keyed by the image's hash, so a replaced screenshot is fetched again and the one shown is the one reviewed.
+  return `/api/admin/referral-evidence/${item.responseId}/screenshot?v=${item.sha256}`
 }
 
 function when(iso: string | null) {
@@ -189,8 +191,14 @@ export default function AdminPage() {
 
   const review = useMutation({
     mutationFn: (input: Review) => input.kind === 'approve'
-      ? api<{ status: string; creditAwarded: boolean }>(`/api/admin/referral-evidence/${input.responseId}/approve`, { method: 'POST' })
-      : api<{ status: string }>(`/api/admin/referral-evidence/${input.responseId}/reject`, { method: 'POST', body: { note: input.note } }),
+      ? api<{ status: string; creditAwarded: boolean }>(`/api/admin/referral-evidence/${input.responseId}/approve`, {
+          method: 'POST',
+          body: { screenshotSha256: input.sha256 },
+        })
+      : api<{ status: string }>(`/api/admin/referral-evidence/${input.responseId}/reject`, {
+          method: 'POST',
+          body: { note: input.note, screenshotSha256: input.sha256 },
+        }),
     onSuccess: (result, input) => {
       if (input.kind === 'approve') {
         celebrate()
@@ -273,12 +281,12 @@ export default function AdminPage() {
           : ''}
         confirmLabel="Approve"
         onClose={() => setApproving(null)}
-        onConfirm={() => approving && review.mutate({ kind: 'approve', responseId: approving.responseId })}
+        onConfirm={() => approving && review.mutate({ kind: 'approve', responseId: approving.responseId, sha256: approving.sha256 })}
       />
       <RejectSheet
         item={rejecting}
         onClose={() => setRejecting(null)}
-        onSubmit={(note) => rejecting && review.mutate({ kind: 'reject', responseId: rejecting.responseId, note })}
+        onSubmit={(note) => rejecting && review.mutate({ kind: 'reject', responseId: rejecting.responseId, sha256: rejecting.sha256, note })}
       />
     </div>
   )

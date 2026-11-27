@@ -52,7 +52,7 @@ import org.springframework.web.context.WebApplicationContext;
 @Transactional
 class ReferralEvidenceHttpTests {
 
-    private static final byte[] PNG = {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13};
+    private static final byte[] PNG = ScreenshotFixtures.PNG;
 
     @Autowired
     private WebApplicationContext context;
@@ -60,6 +60,8 @@ class ReferralEvidenceHttpTests {
     private CompanyReferralRequestService requests;
     @Autowired
     private JdbcClient jdbc;
+    @Autowired
+    private jakarta.persistence.EntityManager entityManager;
     @MockitoBean
     private JavaMailSender mailSender;
 
@@ -120,12 +122,21 @@ class ReferralEvidenceHttpTests {
                 .andExpect(content().bytes(PNG));
 
         String reviewUrl = "/api/admin/referral-evidence/" + responseId;
+        entityManager.flush();
+        String sha = jdbc.sql("SELECT sha256 FROM referral_submission_evidence WHERE response_id = ?")
+                .param(responseId).query(String.class).single();
+        String approveBody = "{\"screenshotSha256\":\"" + sha + "\"}";
         mvc.perform(post(reviewUrl + "/reject").with(csrf()).with(authentication(auth(adminEmail)))
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"note\":\" \"}"))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"note\":\" \",\"screenshotSha256\":\"" + sha + "\"}"))
                 .andExpect(status().isBadRequest());
-        mvc.perform(post(reviewUrl + "/approve").with(csrf()).with(authentication(auth(referrerEmail))))
+        mvc.perform(post(reviewUrl + "/approve").with(csrf()).with(authentication(auth(adminEmail)))
+                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isBadRequest()); // the reviewed screenshot must be named
+        mvc.perform(post(reviewUrl + "/approve").with(csrf()).with(authentication(auth(referrerEmail)))
+                        .contentType(MediaType.APPLICATION_JSON).content(approveBody))
                 .andExpect(status().isForbidden());
-        mvc.perform(post(reviewUrl + "/approve").with(csrf()).with(authentication(auth(adminEmail))))
+        mvc.perform(post(reviewUrl + "/approve").with(csrf()).with(authentication(auth(adminEmail)))
+                        .contentType(MediaType.APPLICATION_JSON).content(approveBody))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("confirmed"))
                 .andExpect(jsonPath("$.creditAwarded").value(true));

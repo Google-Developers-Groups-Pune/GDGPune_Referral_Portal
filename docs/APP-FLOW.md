@@ -291,6 +291,15 @@ requests use a separate request/response lifecycle.
     upload a new screenshot, which replaces the old one. If they never do, the normal assignment
     timeout applies: the seeker can continue with other referrers or get the allowance back.
   - An admin cannot review a referral in which they are the seeker or the referrer.
+  - Each review names the screenshot's SHA-256. If the referrer has replaced it since the admin
+    opened it, the review is refused (409) so nobody approves an image they did not see.
+  - A referrer gets at most one verified referral per person per company, even across different
+    roles. A second submission is refused, and a second approval is refused as a backstop.
+  - While a screenshot waits for review, the other referrers' invitations stay open even if the
+    request window ends, so a rejection can still lead to the seeker continuing with them.
+    Approval closes them once the window has ended.
+- Uploads must be complete images: header, dimensions (max 20,000 px a side) and an intact ending
+  are checked without decoding the pixels.
 - This referral allowance is separate from the legacy meeting budget.
 - Accepted but unsubmitted assignments trigger work-email reminders at 24, 48, and 72 hours, then
   close at 96 hours. If other verified

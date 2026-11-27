@@ -354,8 +354,12 @@ public class CompanyReferralRequestService {
      * The referrer marks the referral submitted by uploading a screenshot as evidence. The response then waits
      * for an admin to review it (see {@link ReferralEvidenceReviewService}); only approval confirms the
      * referral, records it in {@code referrals} and may award the referrer a credit.
+     *
+     * <p>READ_COMMITTED for the same reason as {@link #create}: resolving the user reads before the request lock,
+     * and under REPEATABLE_READ the status checks would use that older snapshot, so an upload that waited for the
+     * lock could replace a screenshot submitted, or even approved, in the meantime.
      */
-    @Transactional
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public Map<String, Object> markSubmitted(Authentication authentication, long requestId, MultipartFile screenshotFile) {
         long referrerId = users.current(authentication).id();
         Screenshot screenshot = ScreenshotImages.read(screenshotFile);
@@ -367,8 +371,12 @@ public class CompanyReferralRequestService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Only an accepted referral can be marked submitted.");
         }
         Instant now = Instant.now();
-        if (referrals.existsByReferrerIdAndCandidateIdAndCompanyId(referrerId,
-            response.getRequest().getSeeker().getId(), response.getRequest().getCompany().getId())) {
+        long seekerId = response.getRequest().getSeeker().getId();
+        long companyId = response.getRequest().getCompany().getId();
+        // Serializes this referrer's submissions across requests, so two roles at one company cannot both slip in.
+        referrerProfiles.findByUserIdForUpdate(referrerId);
+        if (referrals.existsByReferrerIdAndCandidateIdAndCompanyId(referrerId, seekerId, companyId)
+                || responses.existsOtherSubmission(referrerId, seekerId, companyId, response.getId())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "You have already referred this person at your company.");
         }
         // A screenshot rejected earlier is replaced, so the admin always reviews the latest upload.

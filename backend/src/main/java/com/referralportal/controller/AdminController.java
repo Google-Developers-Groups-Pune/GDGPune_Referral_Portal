@@ -1,5 +1,6 @@
 package com.referralportal.controller;
 
+import com.referralportal.dto.AdminDtos.ApproveRequest;
 import com.referralportal.dto.AdminDtos.EvidenceQueue;
 import com.referralportal.dto.AdminDtos.RejectRequest;
 import com.referralportal.entity.ReferralSubmissionEvidence;
@@ -48,13 +49,14 @@ public class AdminController {
     }
 
     @PostMapping("/referral-evidence/{responseId}/approve")
-    public Map<String, Object> approve(Authentication auth, @PathVariable long responseId) {
-        return reviews.approve(auth, responseId);
+    public Map<String, Object> approve(Authentication auth, @PathVariable long responseId,
+            @Valid @RequestBody ApproveRequest input) {
+        return reviews.approve(auth, responseId, input.screenshotSha256());
     }
 
     @PostMapping("/referral-evidence/{responseId}/reject")
     public Map<String, Object> reject(Authentication auth, @PathVariable long responseId,
             @Valid @RequestBody RejectRequest input) {
-        return reviews.reject(auth, responseId, input.note());
+        return reviews.reject(auth, responseId, input.note(), input.screenshotSha256());
     }
 }

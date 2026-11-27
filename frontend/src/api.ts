@@ -111,6 +111,8 @@ export type AdminEvidenceItem = {
   filename: string
   contentType: string
   sizeBytes: number
+  /** Identifies the exact screenshot shown; sent back with a review so a replaced one is never judged unseen. */
+  sha256: string
   uploadedAt: string
   reviewStatus: EvidenceStatus
   reviewNote: string | null
