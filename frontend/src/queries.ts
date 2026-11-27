@@ -59,6 +59,12 @@ export const adminEvidenceQuery = (status: EvidenceStatus) => queryOptions({
   queryFn: () => api<AdminEvidenceQueue>(`/api/admin/referral-evidence?status=${status}`),
 })
 
+/** Counts only, for the Admin tab badge; shares the 'admin-evidence' prefix so reviews refresh it. */
+export const adminEvidenceCountsQuery = queryOptions({
+  queryKey: ['admin-evidence', 'counts'],
+  queryFn: () => api<Record<EvidenceStatus, number>>('/api/admin/referral-evidence/counts'),
+})
+
 export const unreadQuery = queryOptions({
   queryKey: ['notifications', 'unread-count'],
   queryFn: fetchUnreadCount,

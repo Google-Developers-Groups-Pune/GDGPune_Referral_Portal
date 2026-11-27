@@ -8,6 +8,7 @@ import { api, type Me } from './api'
 import { haptic, switchTheme, type Theme } from './feedback'
 import NotificationBell from './NotificationBell'
 import {
+  adminEvidenceCountsQuery,
   adminEvidenceQuery,
   badgeQuery,
   companiesQuery,
@@ -120,8 +121,8 @@ function useWaitingCount() {
 
 /** Screenshots waiting for an admin, shown on the Admin tab. */
 function usePendingReviewCount(enabled: boolean) {
-  const { data } = useQuery({ ...adminEvidenceQuery('pending'), enabled, refetchInterval: 30_000 })
-  return enabled ? data?.counts.pending ?? 0 : 0
+  const { data } = useQuery({ ...adminEvidenceCountsQuery, enabled, refetchInterval: 30_000 })
+  return enabled ? data?.pending ?? 0 : 0
 }
 
 function NavItem({ tab, count, layout }: { tab: Tab; count: number; layout: 'bar' | 'side' }) {

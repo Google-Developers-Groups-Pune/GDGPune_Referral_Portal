@@ -20,13 +20,13 @@ import com.referralportal.repository.jpa.ReferralSubmissionEvidenceJpaRepository
 import com.referralportal.repository.jpa.ReferrerProfileJpaRepository;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
@@ -51,6 +51,8 @@ public class ReferralEvidenceReviewService {
     private static final int CREDIT_DAYS = 90;
     private static final Set<String> STATUSES = Set.of(ReferralSubmissionEvidence.PENDING,
             ReferralSubmissionEvidence.APPROVED, ReferralSubmissionEvidence.REJECTED);
+    /** Most items one queue request returns; the counts still cover everything. */
+    static final int QUEUE_LIMIT = 100;
 
     @Autowired
     private AdminAccess access;
@@ -80,10 +82,11 @@ public class ReferralEvidenceReviewService {
         if (!STATUSES.contains(wanted)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unknown review status.");
         }
-        List<EvidenceMeta> metas = new ArrayList<>(evidenceRows.findMetaByReviewStatus(wanted));
-        if (!ReferralSubmissionEvidence.PENDING.equals(wanted)) {
-            metas.sort((a, b) -> compareNewestFirst(a.getReviewedAt(), b.getReviewedAt()));
-        }
+        // Bounded so the admin page's polling costs the same however long the review history grows.
+        PageRequest page = PageRequest.of(0, QUEUE_LIMIT);
+        List<EvidenceMeta> metas = ReferralSubmissionEvidence.PENDING.equals(wanted)
+                ? evidenceRows.findOldestMetaByReviewStatus(wanted, page)
+                : evidenceRows.findLatestReviewedMeta(wanted, page);
         Map<Long, ReferralRequestResponse> byId = metas.isEmpty() ? Map.of()
                 : responses.findWithDetailsByIdIn(metas.stream().map(EvidenceMeta::getResponseId).toList()).stream()
                         .collect(Collectors.toMap(ReferralRequestResponse::getId, Function.identity()));
@@ -91,11 +94,21 @@ public class ReferralEvidenceReviewService {
                 .filter(meta -> byId.containsKey(meta.getResponseId()))
                 .map(meta -> item(meta, byId.get(meta.getResponseId())))
                 .toList();
-        EvidenceCounts counts = new EvidenceCounts(
+        return new EvidenceQueue(countsOf(), QUEUE_LIMIT, items);
+    }
+
+    /** Just the per-status counts, for the navigation badge. */
+    @Transactional(readOnly = true)
+    public EvidenceCounts counts(Authentication authentication) {
+        access.requireAdmin(authentication);
+        return countsOf();
+    }
+
+    private EvidenceCounts countsOf() {
+        return new EvidenceCounts(
                 evidenceRows.countByReviewStatus(ReferralSubmissionEvidence.PENDING),
                 evidenceRows.countByReviewStatus(ReferralSubmissionEvidence.APPROVED),
                 evidenceRows.countByReviewStatus(ReferralSubmissionEvidence.REJECTED));
-        return new EvidenceQueue(counts, items);
     }
 
     @Transactional(readOnly = true)
@@ -241,13 +254,6 @@ public class ReferralEvidenceReviewService {
                 time(response.getAcceptedAt()), time(response.getSubmittedAt()), meta.getFilename(), meta.getContentType(),
                 meta.getSizeBytes(), meta.getSha256(), time(meta.getUploadedAt()), meta.getReviewStatus(), meta.getReviewNote(),
                 time(meta.getReviewedAt()), meta.getReviewerName());
-    }
-
-    private static int compareNewestFirst(Instant a, Instant b) {
-        if (a == null) {
-            return b == null ? 0 : 1;
-        }
-        return b == null ? -1 : b.compareTo(a);
     }
 
     private static String time(Instant value) {

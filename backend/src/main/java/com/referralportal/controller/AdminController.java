@@ -1,6 +1,7 @@
 package com.referralportal.controller;
 
 import com.referralportal.dto.AdminDtos.ApproveRequest;
+import com.referralportal.dto.AdminDtos.EvidenceCounts;
 import com.referralportal.dto.AdminDtos.EvidenceQueue;
 import com.referralportal.dto.AdminDtos.RejectRequest;
 import com.referralportal.entity.ReferralSubmissionEvidence;
@@ -33,6 +34,11 @@ public class AdminController {
     @GetMapping("/referral-evidence")
     public EvidenceQueue queue(Authentication auth, @RequestParam(value = "status", required = false) String status) {
         return reviews.queue(auth, status);
+    }
+
+    @GetMapping("/referral-evidence/counts")
+    public EvidenceCounts counts(Authentication auth) {
+        return reviews.counts(auth);
     }
 
     @GetMapping("/referral-evidence/{responseId}/screenshot")

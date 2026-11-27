@@ -122,6 +122,8 @@ export type AdminEvidenceItem = {
 
 export type AdminEvidenceQueue = {
   counts: Record<EvidenceStatus, number>
+  /** Most items returned; `counts` covers everything. */
+  limit: number
   items: AdminEvidenceItem[]
 }
 

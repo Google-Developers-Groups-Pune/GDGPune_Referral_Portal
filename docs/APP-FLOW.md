@@ -396,6 +396,10 @@ management, report queue, badge/QR bulk export) is not.
   `GET .../{responseId}/screenshot` serves the image (no-store, sandboxed);
   `POST .../{responseId}/approve` and `POST .../{responseId}/reject` (`{"note": "..."}`) record
   the decision and the reviewer in `referral_submission_evidence`.
+- The queue returns at most 100 items per status (oldest pending first, most recently reviewed
+  first otherwise), with full counts. `GET .../counts` returns only the counts, for the Admin tab badge.
+- The dashboard's Approve and Reject stay off until that exact screenshot has loaded on screen, and
+  each review carries the hash of the screenshot it was started from.
 - The seeker gets a `referral_verified` notification on approval; the referrer gets
   `referral_confirmed` (with whether a credit was awarded) or `referral_evidence_rejected` (with
   the reason, also emailed to their work address).

@@ -6,6 +6,7 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -13,13 +14,18 @@ import org.springframework.data.repository.query.Param;
 
 public interface ReferralSubmissionEvidenceJpaRepository extends JpaRepository<ReferralSubmissionEvidence, Long> {
 
-    /** The review queue without the screenshot bytes; oldest first so nothing waits forever. */
-    @Query("select e.responseId as responseId, e.filename as filename, e.contentType as contentType, "
+    String META = "select e.responseId as responseId, e.filename as filename, e.contentType as contentType, "
             + "e.sizeBytes as sizeBytes, e.sha256 as sha256, e.uploadedAt as uploadedAt, e.reviewStatus as reviewStatus, "
             + "e.reviewNote as reviewNote, e.reviewedAt as reviewedAt, reviewer.name as reviewerName "
-            + "from ReferralSubmissionEvidence e left join e.reviewedBy reviewer "
-            + "where e.reviewStatus = :status order by e.uploadedAt asc")
-    List<EvidenceMeta> findMetaByReviewStatus(@Param("status") String status);
+            + "from ReferralSubmissionEvidence e left join e.reviewedBy reviewer where e.reviewStatus = :status ";
+
+    /** Screenshots awaiting review, without their bytes; oldest first so nothing waits forever. */
+    @Query(META + "order by e.uploadedAt asc, e.responseId asc")
+    List<EvidenceMeta> findOldestMetaByReviewStatus(@Param("status") String status, Pageable page);
+
+    /** Reviewed screenshots, without their bytes; most recently reviewed first. */
+    @Query(META + "order by e.reviewedAt desc, e.responseId desc")
+    List<EvidenceMeta> findLatestReviewedMeta(@Param("status") String status, Pageable page);
 
     /** Review state only, for the referrer's inbox. */
     @Query("select e.responseId as responseId, e.reviewStatus as reviewStatus, e.reviewNote as reviewNote "

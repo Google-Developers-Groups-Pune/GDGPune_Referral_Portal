@@ -117,33 +117,69 @@ public final class ScreenshotImages {
         return false;
     }
 
-    /** WebP: the RIFF size must match the file, and the first chunk must be a known image chunk. */
+    /**
+     * WebP: the RIFF size must match the file, every chunk must fit inside it (with its padding byte) and the
+     * chunks must end exactly at the end of the file. A still image needs one VP8 or VP8L chunk with real data:
+     * first in a simple file, or after a VP8X header in an extended one. A VP8X header alone is not an image.
+     */
     private static int[] webpSize(byte[] d) {
-        if (d.length < 30) {
+        if (d.length < 20 || le32(d, 4) + 8 != d.length) {
             return null;
         }
-        long riffSize = le32(d, 4);
-        if (riffSize + 8 != d.length) {
+        int[] canvas = null;
+        int[] image = null;
+        int at = 12;
+        boolean first = true;
+        while (at < d.length) {
+            if (at + 8 > d.length) {
+                return null;
+            }
+            long size = le32(d, at + 4);
+            int payload = at + 8;
+            long end = payload + size + (size & 1);
+            if (end > d.length) {
+                return null;
+            }
+            if (ascii(d, at, "VP8X")) {
+                if (!first || size < 10) {
+                    return null;
+                }
+                canvas = new int[] {le24(d, payload + 4) + 1, le24(d, payload + 7) + 1};
+            } else if (ascii(d, at, "VP8L") || ascii(d, at, "VP8 ")) {
+                if (image != null || (!first && canvas == null)) {
+                    return null;
+                }
+                image = ascii(d, at, "VP8L") ? vp8lSize(d, payload, size) : vp8Size(d, payload, size);
+                if (image == null) {
+                    return null;
+                }
+            } else if (first) {
+                return null;
+            }
+            first = false;
+            at = (int) end;
+        }
+        if (image == null) {
             return null;
         }
-        if (ascii(d, 12, "VP8X")) {
-            return new int[] {le24(d, 24) + 1, le24(d, 27) + 1};
+        return canvas != null ? canvas : image;
+    }
+
+    /** Lossless: signature 0x2F, then 14-bit width and height; data must follow the 5-byte header. */
+    private static int[] vp8lSize(byte[] d, int at, long size) {
+        if (size <= 5 || (d[at] & 0xFF) != 0x2F) {
+            return null;
         }
-        if (ascii(d, 12, "VP8L")) {
-            if ((d[20] & 0xFF) != 0x2F) {
-                return null;
-            }
-            long bits = le32(d, 21);
-            return new int[] {(int) (bits & 0x3FFF) + 1, (int) ((bits >> 14) & 0x3FFF) + 1};
+        long bits = le32(d, at + 1);
+        return new int[] {(int) (bits & 0x3FFF) + 1, (int) ((bits >> 14) & 0x3FFF) + 1};
+    }
+
+    /** Lossy: key-frame start code 9D 01 2A, then 14-bit width and height; data must follow the 10-byte header. */
+    private static int[] vp8Size(byte[] d, int at, long size) {
+        if (size <= 10 || (d[at + 3] & 0xFF) != 0x9D || (d[at + 4] & 0xFF) != 0x01 || (d[at + 5] & 0xFF) != 0x2A) {
+            return null;
         }
-        if (ascii(d, 12, "VP8 ")) {
-            // Key frame start code 9D 01 2A, then 14-bit width and height.
-            if ((d[23] & 0xFF) != 0x9D || (d[24] & 0xFF) != 0x01 || (d[25] & 0xFF) != 0x2A) {
-                return null;
-            }
-            return new int[] {le16(d, 26) & 0x3FFF, le16(d, 28) & 0x3FFF};
-        }
-        return null;
+        return new int[] {le16(d, at + 6) & 0x3FFF, le16(d, at + 8) & 0x3FFF};
     }
 
     private static boolean sane(int[] size) {

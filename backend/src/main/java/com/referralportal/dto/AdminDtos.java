@@ -16,7 +16,8 @@ public final class AdminDtos {
 
     public record EvidenceCounts(long pending, long approved, long rejected) {}
 
-    public record EvidenceQueue(EvidenceCounts counts, List<EvidenceItem> items) {}
+    /** {@code items} holds at most {@code limit} entries; compare with {@code counts} to know if more exist. */
+    public record EvidenceQueue(EvidenceCounts counts, int limit, List<EvidenceItem> items) {}
 
     /**
      * {@code screenshotSha256} is the screenshot the admin actually looked at. If the referrer has replaced it

@@ -113,7 +113,14 @@ class ReferralEvidenceHttpTests {
                 .andExpect(jsonPath("$.isAdmin").value(false));
         mvc.perform(get("/api/admin/referral-evidence?status=pending").with(authentication(auth(adminEmail))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.items[*].responseId", hasItem((int) responseId)));
+                .andExpect(jsonPath("$.items[*].responseId", hasItem((int) responseId)))
+                .andExpect(jsonPath("$.limit").value(100));
+        mvc.perform(get("/api/admin/referral-evidence/counts").with(authentication(auth(referrerEmail))))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/admin/referral-evidence/counts").with(authentication(auth(adminEmail))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.pending").isNumber())
+                .andExpect(jsonPath("$.items").doesNotExist());
         mvc.perform(get("/api/admin/referral-evidence/" + responseId + "/screenshot").with(authentication(auth(adminEmail))))
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.IMAGE_PNG))
