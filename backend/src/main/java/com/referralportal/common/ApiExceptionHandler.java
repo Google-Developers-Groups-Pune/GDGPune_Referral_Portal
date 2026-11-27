@@ -18,7 +18,7 @@ class ApiExceptionHandler {
     @ExceptionHandler(ResponseStatusException.class)
     ResponseEntity<ErrorBody> status(ResponseStatusException e) {
         String message = e.getReason() == null ? "Something went wrong." : e.getReason();
-        return ResponseEntity.status(e.getStatusCode()).body(new ErrorBody(message));
+        return ResponseEntity.status(e.getStatusCode()).headers(e.getHeaders()).body(new ErrorBody(message));
     }
 
     @ExceptionHandler(MissingServletRequestPartException.class)

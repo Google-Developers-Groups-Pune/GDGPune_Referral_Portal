@@ -74,16 +74,24 @@ public class AuthController {
             HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
         auth.validatePasswordLength(request.password());
         loginAttemptRateLimiter.checkAllowed(request.email(), httpRequest.getRemoteAddr());
-        startSession(request.email(), request.password(), httpRequest, httpResponse);
+        startSession(request.email(), request.password(), httpRequest, httpResponse, true);
     }
 
     private void startSession(String email, String password,
             HttpServletRequest request, HttpServletResponse response) {
+        startSession(email, password, request, response, false);
+    }
+
+    private void startSession(String email, String password,
+            HttpServletRequest request, HttpServletResponse response, boolean countFailure) {
         Authentication authentication;
         try {
             authentication = authenticationManager.authenticate(
                     UsernamePasswordAuthenticationToken.unauthenticated(email.trim().toLowerCase(), password));
         } catch (AuthenticationException failed) {
+            if (countFailure) {
+                loginAttemptRateLimiter.recordFailedLogin(email); // throws 429 on the attempt that hits the limit
+            }
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid email or password.");
         }
         loginAttemptRateLimiter.recordSuccessfulLogin(email);

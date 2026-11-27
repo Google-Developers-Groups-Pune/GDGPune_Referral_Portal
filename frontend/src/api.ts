@@ -176,9 +176,12 @@ export const apiOrigin: string = import.meta.env.VITE_API_ORIGIN ?? ''
 
 export class ApiError extends Error {
   status: number
-  constructor(status: number, message: string) {
+  /** Seconds from the response's Retry-After header, when the server sent one. */
+  retryAfterSeconds?: number
+  constructor(status: number, message: string, retryAfterSeconds?: number) {
     super(message)
     this.status = status
+    this.retryAfterSeconds = retryAfterSeconds
   }
 }
 
@@ -206,7 +209,8 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
     } catch {
       /* keep the generic message */
     }
-    throw new ApiError(res.status, message)
+    const retryAfter = Number(res.headers.get('Retry-After'))
+    throw new ApiError(res.status, message, retryAfter > 0 ? retryAfter : undefined)
   }
   const text = await res.text()
   return (text ? JSON.parse(text) : undefined) as T

@@ -93,6 +93,13 @@ Spring Security OAuth2 login → [UserService.java](/d:/GDG/Referral-Portal/back
 
 **Supported sign-in methods:** email/password, Google OAuth, and GitHub OAuth. LinkedIn sign-in is not planned for the MVP.
 
+**Password sign-in limits** (`LoginAttemptRateLimiter`, table `auth_login_rate_limits`): each
+network is capped at 100 attempts per 15 minutes. Wrong passwords are counted per email; the 5th
+failure returns `429` ("Too many failed sign-in attempts. Please try again in 5 minutes.") and blocks
+password sign-in for that email for 5 minutes from that attempt. The block expires on its own (no
+permanent lockout), and a successful sign-in clears the count. Configurable via
+`app.auth.login-rate-limit.failed-attempts` and `failed-block-seconds`.
+
 ## 2. Register with email and password
 
 **Flow:**
