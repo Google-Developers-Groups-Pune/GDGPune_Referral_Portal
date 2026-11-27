@@ -55,7 +55,12 @@ function Person({ role, name, detail, email }: { role: string; name: string; det
   )
 }
 
-function Thumbnail({ item, onOpen, onShown }: { item: AdminEvidenceItem; onOpen: () => void; onShown: (sha256: string) => void }) {
+function Thumbnail({ item, onOpen, onShown, onFailed }: {
+  item: AdminEvidenceItem
+  onOpen: () => void
+  onShown: (sha256: string) => void
+  onFailed: (sha256: string) => void
+}) {
   const [broken, setBroken] = useState(false)
   return (
     <button
@@ -67,7 +72,7 @@ function Thumbnail({ item, onOpen, onShown }: { item: AdminEvidenceItem; onOpen:
       {broken ? (
         <span className="flex flex-col items-center gap-1 text-xs text-muted"><ImageOff size={22} aria-hidden />Could not load the screenshot</span>
       ) : (
-        <img src={screenshotUrl(item)} alt="" loading="lazy" onLoad={() => onShown(item.sha256)} onError={() => setBroken(true)} className="h-full w-full object-contain" />
+        <img src={screenshotUrl(item)} alt="" loading="lazy" onLoad={() => onShown(item.sha256)} onError={() => { setBroken(true); onFailed(item.sha256) }} className="h-full w-full object-contain" />
       )}
       <span className="absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-full bg-black/60 px-2.5 py-1 text-xs font-semibold text-white opacity-90 group-hover:opacity-100">
         <Maximize2 size={12} aria-hidden /> View
@@ -76,13 +81,16 @@ function Thumbnail({ item, onOpen, onShown }: { item: AdminEvidenceItem; onOpen:
   )
 }
 
-function EvidenceCard({ item, index, busy, shown, onShown, onApprove, onReject, onView }: {
+function EvidenceCard({ item, index, busy, shown, failed, onShown, onFailed, onApprove, onReject, onView }: {
   item: AdminEvidenceItem
   index: number
   busy: Review | null
-  /** True once this exact screenshot (by hash) has loaded on screen. Reviewing stays off until then. */
+  /** True once this exact screenshot (by hash) has loaded on screen. Approving stays off until then. */
   shown: boolean
+  /** True when this screenshot could not be displayed. It can still be rejected, so it never gets stuck. */
+  failed: boolean
   onShown: (sha256: string) => void
+  onFailed: (sha256: string) => void
   onApprove: () => void
   onReject: () => void
   onView: () => void
@@ -106,7 +114,7 @@ function EvidenceCard({ item, index, busy, shown, onShown, onApprove, onReject, 
       </div>
 
       {/* Keyed by hash: a replaced screenshot remounts and must load before it can be reviewed. */}
-      <Thumbnail key={item.sha256} item={item} onOpen={onView} onShown={onShown} />
+      <Thumbnail key={item.sha256} item={item} onOpen={onView} onShown={onShown} onFailed={onFailed} />
 
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
         <span>Uploaded {when(item.uploadedAt)} · {Math.ceil(item.sizeBytes / 1024)} KB</span>
@@ -129,14 +137,18 @@ function EvidenceCard({ item, index, busy, shown, onShown, onApprove, onReject, 
       {item.reviewStatus === 'pending' && (
         <div className="space-y-2 border-t border-line pt-4">
           <div className="grid grid-cols-2 gap-3">
-            <Button variant="danger" disabled={busy !== null || !shown} loading={mine && busy?.kind === 'reject'} onClick={onReject}>
+            <Button variant="danger" disabled={busy !== null || !(shown || failed)} loading={mine && busy?.kind === 'reject'} onClick={onReject}>
               <CircleX size={16} aria-hidden /> Reject
             </Button>
             <Button variant="success" disabled={busy !== null || !shown} loading={mine && busy?.kind === 'approve'} onClick={onApprove}>
               <BadgeCheck size={16} aria-hidden /> Approve
             </Button>
           </div>
-          {!shown && <p className="text-center text-xs text-muted">You can review once the screenshot has loaded.</p>}
+          {!shown && (
+            <p className="text-center text-xs text-muted">
+              {failed ? 'The screenshot could not be opened. Reject it so the referrer can upload a new one.' : 'You can review once the screenshot has loaded.'}
+            </p>
+          )}
         </div>
       )}
     </Card>
@@ -199,6 +211,8 @@ export default function AdminPage() {
   // started from, so polling that swaps in a replacement can never turn a click into approval of an unseen image.
   const [seen, setSeen] = useState<ReadonlySet<string>>(() => new Set())
   const markSeen = (sha256: string) => setSeen((prev) => (prev.has(sha256) ? prev : new Set(prev).add(sha256)))
+  const [failed, setFailed] = useState<ReadonlySet<string>>(() => new Set())
+  const markFailed = (sha256: string) => setFailed((prev) => (prev.has(sha256) ? prev : new Set(prev).add(sha256)))
   const liveViewing = viewing ? queue.data?.items.find((i) => i.responseId === viewing.responseId) : undefined
   const viewingReplaced = liveViewing !== undefined && viewing !== null && liveViewing.sha256 !== viewing.sha256
 
@@ -267,7 +281,9 @@ export default function AdminPage() {
                 index={i}
                 busy={busy}
                 shown={seen.has(item.sha256)}
+                failed={failed.has(item.sha256)}
                 onShown={markSeen}
+                onFailed={markFailed}
                 onView={() => setViewing(item)}
                 onApprove={() => {
                   haptic()
@@ -291,7 +307,7 @@ export default function AdminPage() {
                 The referrer uploaded a new screenshot since you opened this one. Close this and review the new one.
               </p>
             )}
-            <img src={screenshotUrl(viewing)} alt={`Screenshot uploaded by ${viewing.referrerName}`} onLoad={() => markSeen(viewing.sha256)} className="w-full rounded-2xl border border-line object-contain" />
+            <img src={screenshotUrl(viewing)} alt={`Screenshot uploaded by ${viewing.referrerName}`} onLoad={() => markSeen(viewing.sha256)} onError={() => markFailed(viewing.sha256)} className="w-full rounded-2xl border border-line object-contain" />
             <a href={screenshotUrl(viewing)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm font-semibold text-primary hover:underline">
               Open full size <ExternalLink size={14} aria-hidden />
             </a>

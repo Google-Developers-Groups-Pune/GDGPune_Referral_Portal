@@ -29,6 +29,35 @@ class ScreenshotImagesTests {
     }
 
     @Test
+    void rejectsPngAndJpegWithNoImageData() {
+        // Signature + IHDR (8 + 25 bytes) straight into the IEND trailer: valid size header, no IDAT.
+        byte[] png = ScreenshotFixtures.PNG;
+        byte[] noIdat = concat(Arrays.copyOf(png, 33), Arrays.copyOfRange(png, png.length - 12, png.length));
+        assertStatus(HttpStatus.UNPROCESSABLE_CONTENT, noIdat);
+
+        // Every header segment up to start-of-scan, then straight to the end marker: no scan data.
+        byte[] jpeg = ScreenshotFixtures.JPEG;
+        int sos = indexOfMarker(jpeg, 0xDA);
+        byte[] noScan = concat(Arrays.copyOf(jpeg, sos), new byte[] {(byte) 0xFF, (byte) 0xD9});
+        assertStatus(HttpStatus.UNPROCESSABLE_CONTENT, noScan);
+    }
+
+    private static int indexOfMarker(byte[] d, int marker) {
+        for (int i = 2; i + 1 < d.length; i++) {
+            if ((d[i] & 0xFF) == 0xFF && (d[i + 1] & 0xFF) == marker) {
+                return i;
+            }
+        }
+        throw new IllegalStateException("marker not found");
+    }
+
+    private static byte[] concat(byte[] a, byte[] b) {
+        byte[] out = Arrays.copyOf(a, a.length + b.length);
+        System.arraycopy(b, 0, out, a.length, b.length);
+        return out;
+    }
+
+    @Test
     void rejectsWebpWithoutUsableImageData() {
         // A VP8X canvas header (10-byte payload) and nothing else: claims 1x1, holds no picture.
         byte[] headerOnly = webp(chunk("VP8X", new byte[10]));

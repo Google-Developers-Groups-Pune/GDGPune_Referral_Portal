@@ -72,8 +72,8 @@ public final class ScreenshotImages {
     /** True when the file has a readable header with sane dimensions and is not cut off. */
     static boolean intact(byte[] d, String contentType) {
         return switch (contentType) {
-            case "image/png" -> endsWithPngTrailer(d) && sane(headerSize(d));
-            case "image/jpeg" -> hasJpegEnd(d) && sane(headerSize(d));
+            case "image/png" -> pngChunksIntact(d) && sane(headerSize(d));
+            case "image/jpeg" -> hasJpegScan(d) && hasJpegEnd(d) && sane(headerSize(d));
             case "image/webp" -> sane(webpSize(d));
             default -> false;
         };
@@ -101,10 +101,69 @@ public final class ScreenshotImages {
         }
     }
 
-    /** PNG files end with an IEND chunk: length 0, "IEND", fixed CRC. A cut-off upload does not. */
-    private static boolean endsWithPngTrailer(byte[] d) {
-        int at = d.length - 12;
-        return at >= 8 && d[at] == 0 && d[at + 1] == 0 && d[at + 2] == 0 && d[at + 3] == 0 && ascii(d, at + 4, "IEND");
+    /**
+     * PNG: walks the chunks (length, type, data, CRC). IHDR must come first, every chunk must fit in the file, at
+     * least one IDAT must carry image data, and an empty IEND must end the file exactly. A header and trailer with
+     * nothing between them, or a cut-off upload, fails. Only lengths are read; nothing is decompressed.
+     */
+    private static boolean pngChunksIntact(byte[] d) {
+        int at = 8;
+        boolean first = true;
+        boolean imageData = false;
+        while (at + 12 <= d.length) {
+            long length = be32(d, at);
+            long end = at + 12 + length;
+            if (end > d.length) {
+                return false;
+            }
+            if (first && !ascii(d, at + 4, "IHDR")) {
+                return false;
+            }
+            if (ascii(d, at + 4, "IDAT") && length > 0) {
+                imageData = true;
+            }
+            if (ascii(d, at + 4, "IEND")) {
+                return length == 0 && end == d.length && imageData;
+            }
+            first = false;
+            at = (int) end;
+        }
+        return false;
+    }
+
+    /**
+     * JPEG: walks the marker segments from the start and requires a start-of-scan (SOS) segment followed by
+     * compressed data. A file with headers but no scan holds no picture.
+     */
+    private static boolean hasJpegScan(byte[] d) {
+        int at = 2;
+        while (at + 4 <= d.length) {
+            if ((d[at] & 0xFF) != 0xFF) {
+                return false;
+            }
+            int marker = d[at + 1] & 0xFF;
+            if (marker == 0xFF) { // fill byte
+                at++;
+                continue;
+            }
+            if (marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7)) { // markers without a length
+                at += 2;
+                continue;
+            }
+            if (marker == 0xD9) { // end of image before any scan
+                return false;
+            }
+            int length = (d[at + 2] & 0xFF) << 8 | (d[at + 3] & 0xFF);
+            if (length < 2 || at + 2 + length > d.length) {
+                return false;
+            }
+            if (marker == 0xDA) {
+                // Scan data must follow the SOS header, before the final FF D9.
+                return at + 2 + length < d.length - 2;
+            }
+            at += 2 + length;
+        }
+        return false;
     }
 
     /** JPEG data ends with the EOI marker FF D9; some tools append a few bytes after it, so look near the end. */
@@ -205,6 +264,10 @@ public final class ScreenshotImages {
 
     private static int le24(byte[] d, int at) {
         return le16(d, at) | (d[at + 2] & 0xFF) << 16;
+    }
+
+    private static long be32(byte[] d, int at) {
+        return (long) (d[at] & 0xFF) << 24 | (d[at + 1] & 0xFF) << 16 | (d[at + 2] & 0xFF) << 8 | (d[at + 3] & 0xFF);
     }
 
     private static long le32(byte[] d, int at) {

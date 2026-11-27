@@ -133,6 +133,12 @@ class ReferralEvidenceHttpTests {
         String sha = jdbc.sql("SELECT sha256 FROM referral_submission_evidence WHERE response_id = ?")
                 .param(responseId).query(String.class).single();
         String approveBody = "{\"screenshotSha256\":\"" + sha + "\"}";
+        // The version the dashboard asks for must be the one served; a replaced screenshot is refused.
+        mvc.perform(get(reviewUrl + "/screenshot?v=" + sha).with(authentication(auth(adminEmail))))
+                .andExpect(status().isOk())
+                .andExpect(content().bytes(PNG));
+        mvc.perform(get(reviewUrl + "/screenshot?v=" + "0".repeat(64)).with(authentication(auth(adminEmail))))
+                .andExpect(status().isConflict());
         mvc.perform(post(reviewUrl + "/reject").with(csrf()).with(authentication(auth(adminEmail)))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"note\":\" \",\"screenshotSha256\":\"" + sha + "\"}"))
                 .andExpect(status().isBadRequest());

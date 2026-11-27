@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -42,8 +43,14 @@ public class AdminController {
     }
 
     @GetMapping("/referral-evidence/{responseId}/screenshot")
-    public ResponseEntity<byte[]> screenshot(Authentication auth, @PathVariable long responseId) {
+    public ResponseEntity<byte[]> screenshot(Authentication auth, @PathVariable long responseId,
+            @RequestParam(value = "v", required = false) String expectedSha256) {
         ReferralSubmissionEvidence evidence = reviews.screenshot(auth, responseId);
+        // The dashboard asks for a specific version by hash and records that hash as seen once it loads. Serving
+        // a replacement under the old hash would show one image while the review names another.
+        if (expectedSha256 != null && !expectedSha256.equalsIgnoreCase(evidence.getSha256())) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).cacheControl(CacheControl.noStore()).build();
+        }
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(evidence.getContentType()))
                 .cacheControl(CacheControl.noStore())
