@@ -2,10 +2,13 @@ package com.referralportal.controller;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.anyString;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 import com.referralportal.dto.AuthDtos.LoginRequest;
 import com.referralportal.service.AuthService;
@@ -15,6 +18,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -55,5 +59,27 @@ class AuthControllerPasswordValidationTests {
 
         assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.TOO_MANY_REQUESTS);
         verifyNoInteractions(authenticationManager);
+    }
+
+    @Test
+    void wrongPasswordIsCountedAsFailedLogin() {
+        AuthenticationManager authenticationManager = mock(AuthenticationManager.class);
+        when(authenticationManager.authenticate(any()))
+                .thenThrow(new BadCredentialsException("bad"));
+        LoginAttemptRateLimiter loginAttemptRateLimiter = mock(LoginAttemptRateLimiter.class);
+
+        AuthController controller = new AuthController();
+        ReflectionTestUtils.setField(controller, "authenticationManager", authenticationManager);
+        ReflectionTestUtils.setField(controller, "auth", new AuthService());
+        ReflectionTestUtils.setField(controller, "loginAttemptRateLimiter", loginAttemptRateLimiter);
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setRemoteAddr("127.0.0.1");
+
+        ResponseStatusException exception = assertThrows(ResponseStatusException.class,
+                () -> controller.login(new LoginRequest("user@example.com", "wrong-password"),
+                request, new MockHttpServletResponse()));
+
+        assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        verify(loginAttemptRateLimiter).recordFailedLogin("user@example.com", "127.0.0.1");
     }
 }

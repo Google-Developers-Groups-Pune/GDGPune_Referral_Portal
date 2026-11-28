@@ -3,12 +3,18 @@ import { Eye, EyeOff } from 'lucide-react'
 import { AnimatePresence } from 'motion/react'
 import * as m from 'motion/react-m'
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { api, apiOrigin } from '../api'
+import { api, apiOrigin, ApiError } from '../api'
 import { ParticleField } from '../effects'
 import { haptic, success } from '../feedback'
 import { Button, Card, ErrorNote, Logo, OtpInput, Segmented } from '../ui'
 
 type Mode = 'login' | 'register'
+
+const normalizeEmail = (value: string) => value.trim().toLowerCase()
+
+/** A 429 from sign-in that says how long the email is blocked for. */
+const isSignInBlock = (error: unknown): error is ApiError & { retryAfterSeconds: number } =>
+  error instanceof ApiError && error.status === 429 && (error.retryAfterSeconds ?? 0) > 0
 
 /** Grows and shrinks its content instead of popping it in. */
 function Reveal({ show, children }: { show: boolean; children: ReactNode }) {
@@ -39,6 +45,7 @@ export default function SignIn({ loginError }: { loginError: boolean }) {
   const [registrationCode, setRegistrationCode] = useState('')
   const [registrationStarted, setRegistrationStarted] = useState(false)
   const autoSubmitted = useRef('')
+  const [blocked, setBlocked] = useState<{ email: string; until: number; message: string } | null>(null)
 
   useEffect(() => {
     void api<void>('/api/auth/csrf').catch(() => undefined)
@@ -55,7 +62,23 @@ export default function SignIn({ loginError }: { loginError: boolean }) {
       body: { email, password },
     }),
     onSuccess: finishAuthentication,
+    onError: (error) => {
+      if (isSignInBlock(error)) {
+        setBlocked({
+          email: normalizeEmail(email),
+          until: Date.now() + error.retryAfterSeconds * 1000,
+          message: error.message,
+        })
+      }
+    },
   })
+
+  // Re-enable sign-in once the block expires.
+  useEffect(() => {
+    if (!blocked) return
+    const timer = window.setTimeout(() => setBlocked(null), Math.max(0, blocked.until - Date.now()))
+    return () => window.clearTimeout(timer)
+  }, [blocked])
   const beginRegistration = useMutation({
     mutationFn: () => api<void>('/api/auth/register', {
       method: 'POST',
@@ -77,10 +100,14 @@ export default function SignIn({ loginError }: { loginError: boolean }) {
   })
   const registrationPending = beginRegistration.isPending || verifyRegistration.isPending
   const busy = authenticate.isPending || registrationPending
-  const errorMessage = mode === 'register'
-    ? (verifyRegistration.error?.message ?? beginRegistration.error?.message)
-    : authenticate.error?.message
   const registering = mode === 'register'
+  // Blocked only while the email in the box is the one that hit the limit.
+  const signInBlocked = !registering && blocked !== null && normalizeEmail(email) === blocked.email
+  const errorMessage = registering
+    ? (verifyRegistration.error?.message ?? beginRegistration.error?.message)
+    : signInBlocked
+      ? blocked.message
+      : isSignInBlock(authenticate.error) ? undefined : authenticate.error?.message
   const awaitingCode = registering && registrationStarted
 
   const restartRegistration = () => {
@@ -167,7 +194,7 @@ export default function SignIn({ loginError }: { loginError: boolean }) {
           className="mt-4"
           onSubmit={(event) => {
             event.preventDefault()
-            if (busy) return
+            if (busy || signInBlocked) return
             if (!registering) authenticate.mutate()
             else if (registrationStarted) verifyRegistration.mutate(registrationCode)
             else beginRegistration.mutate()
@@ -212,7 +239,7 @@ export default function SignIn({ loginError }: { loginError: boolean }) {
           </Reveal>
           <Reveal show={awaitingCode}>
             <label className="text-sm font-semibold" htmlFor="registration-code">Email verification code</label>
-            <p className="mb-3 mt-1 text-xs text-muted">If <b className="text-ink">{email}</b> can be registered, a code has been sent. It expires in 10 minutes.</p>
+            <p className="mb-3 mt-1 text-xs text-muted">A code has been sent to <b className="text-ink">{email}</b>. It expires in 10 minutes.</p>
             <OtpInput id="registration-code" value={registrationCode} onChange={enterCode} disabled={registrationPending} />
             <div className="mt-2 flex flex-wrap justify-between gap-2 text-xs font-semibold text-primary">
               <button type="button" disabled={registrationPending} onClick={() => { verifyRegistration.reset(); beginRegistration.mutate() }} className="press rounded-full py-2 disabled:opacity-60">Resend code</button>
@@ -223,7 +250,7 @@ export default function SignIn({ loginError }: { loginError: boolean }) {
           <Button
             type="submit"
             loading={busy}
-            disabled={(registering && name.trim().length === 0) || (awaitingCode && registrationCode.length !== 6)}
+            disabled={signInBlocked || (registering && name.trim().length === 0) || (awaitingCode && registrationCode.length !== 6)}
             className="w-full py-3"
           >
             {busy
